@@ -4,9 +4,24 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue?logo=docker)](https://docs.docker.com/compose/)
 
-> 正式環境可用的 Docker Compose 組合包，以 **PostgreSQL** 取代預設的 SQLite 作為 **Home Assistant** 的記錄器（Recorder）資料庫，提供更好的效能、穩定性與可擴展性。
+> 正式環境可用的 Docker Compose / Podman Compose 組合包，以 **PostgreSQL** 取代預設的 SQLite 作為 **Home Assistant** 的記錄器（Recorder）資料庫，提供更好的效能、穩定性與可擴展性。
+
+**本倉庫僅供 Podman / Docker Compose 部署使用。** Kubernetes 部署請參考下方姊妹倉庫。
 
 **[English README](README.md)**
+
+---
+
+## 姊妹倉庫
+
+本專案已依部署平台拆分為獨立倉庫，各平台各自對應一個倉庫：
+
+| 平台 | 倉庫 | 格式 |
+|------|------|------|
+| **Docker / Podman Compose**（本倉庫） | [Woow_podman_homeassistant](https://github.com/WOOWTECH/Woow_podman_homeassistant) | `docker-compose.yml` |
+| **K3s / Kubernetes** | [Woow_k3s_homeassistant](https://github.com/WOOWTECH/Woow_k3s_homeassistant) | Helm chart |
+
+Home Assistant 本身就是智慧家庭作業系統，因此不會有「Home Assistant add-on 版」的本組合包。
 
 ---
 
@@ -82,8 +97,8 @@ docker compose version
 ### 1. 複製專案
 
 ```bash
-git clone https://github.com/WOOWTECH/Woow_ha_docker_compose_all.git
-cd Woow_ha_docker_compose_all
+git clone https://github.com/WOOWTECH/Woow_podman_homeassistant.git
+cd Woow_podman_homeassistant
 ```
 
 ### 2. 建立環境變數檔

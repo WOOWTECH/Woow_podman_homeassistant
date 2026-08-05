@@ -4,9 +4,24 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue?logo=postgresql)](https://www.postgresql.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue?logo=docker)](https://docs.docker.com/compose/)
 
-> Production-ready Docker Compose stack for **Home Assistant** with **PostgreSQL** as the recorder database. Replaces the default SQLite with PostgreSQL for better performance, reliability, and scalability.
+> Production-ready Docker Compose / Podman Compose stack for **Home Assistant** with **PostgreSQL** as the recorder database. Replaces the default SQLite with PostgreSQL for better performance, reliability, and scalability.
+
+**This repository is Podman / Docker Compose only.** For Kubernetes deployments, see the sister repositories listed below.
 
 **[中文版 README](README_zh-TW.md)**
+
+---
+
+## Sister repositories
+
+This project has been split by deployment platform. Each platform is a standalone repository:
+
+| Platform | Repository | Format |
+|----------|------------|--------|
+| **Docker / Podman Compose** (this repo) | [Woow_podman_homeassistant](https://github.com/WOOWTECH/Woow_podman_homeassistant) | `docker-compose.yml` |
+| **K3s / Kubernetes** | [Woow_k3s_homeassistant](https://github.com/WOOWTECH/Woow_k3s_homeassistant) | Helm chart |
+
+Home Assistant is itself the smart-home operating system, so there is no Home Assistant add-on variant of this stack.
 
 ---
 
@@ -82,8 +97,8 @@ docker compose version
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/WOOWTECH/Woow_ha_docker_compose_all.git
-cd Woow_ha_docker_compose_all
+git clone https://github.com/WOOWTECH/Woow_podman_homeassistant.git
+cd Woow_podman_homeassistant
 ```
 
 ### 2. Create your environment file
@@ -373,38 +388,26 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-## K3s/Kubernetes Deployment
+## K3s / Kubernetes deployment
 
-This project also supports deployment on **K3s/Kubernetes** clusters. The K3s manifests are maintained on a separate branch.
-
-### Quick Start (K3s)
+K3s/Kubernetes deployment now lives in the dedicated sister repository as a **Helm chart** (Kustomize has been retired):
 
 ```bash
-# Clone the k3s branch
-git clone -b k3s https://github.com/WOOWTECH/Woow_ha_docker_compose_all.git Woow_ha_docker_compose_all-k3s
-cd Woow_ha_docker_compose_all-k3s
-
-# Edit secrets before deploying
-nano secret.yaml
-
-# Deploy to your k3s cluster
-kubectl apply -k .
-
-# Verify pods are running
-kubectl -n homeassistant get pods
+helm install homeassistant \
+  https://github.com/WOOWTECH/Woow_k3s_homeassistant/archive/refs/heads/main.tar.gz \
+  --set secrets.postgresPassword=YOUR_SECURE_PASSWORD_HERE
 ```
 
-### Deployment Methods Comparison
+See [Woow_k3s_homeassistant](https://github.com/WOOWTECH/Woow_k3s_homeassistant) for full documentation.
 
-| Feature | Podman/Docker Compose | K3s/Kubernetes |
-|---------|----------------------|----------------|
-| Branch | `main` | `k3s` |
+### Deployment methods comparison
+
+| Feature | Podman/Docker Compose (this repo) | K3s/Kubernetes (Woow_k3s_homeassistant) |
+|---------|-----------------------------------|-----------------------------------------|
 | Orchestrator | Podman / Docker | K3s / Kubernetes |
-| Config format | `.env` + `docker-compose.yml` | ConfigMap + Secret + YAML manifests |
+| Config format | `.env` + `docker-compose.yml` | Helm chart (`values.yaml`) |
 | Scaling | Manual | `kubectl scale` |
 | Health checks | Docker healthcheck | liveness/readiness/startup probes |
 | Service discovery | Docker DNS | Kubernetes DNS (`svc.cluster.local`) |
 | Storage | Docker volumes | PersistentVolumeClaims |
-| Rolling updates | `docker compose pull && up -d` | `kubectl rollout restart` |
-
-> For full K3s deployment documentation, switch to the [`k3s` branch](https://github.com/WOOWTECH/Woow_ha_docker_compose_all/tree/k3s).
+| Rolling updates | `docker compose pull && up -d` | `helm upgrade` |
