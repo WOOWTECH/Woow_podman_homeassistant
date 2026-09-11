@@ -1,0 +1,4 @@
+# Used only by the optional homeassistant-db container. HA itself is on the host network.
+[Network]
+NetworkName=homeassistant
+Label=io.woowtech.app=homeassistant

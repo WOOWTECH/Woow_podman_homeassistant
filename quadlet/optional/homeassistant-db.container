@@ -1,0 +1,41 @@
+# Optional PostgreSQL recorder backend. Installed only when HA_POSTGRES=true
+# (scripts/install.sh --with-postgres). The default recorder is SQLite in the config dir.
+# Read docs/postgres.md before switching an existing install: HA does not move SQLite
+# history into Postgres.
+#
+# HA runs on the host network, so the database publishes on loopback only, on HA_DB_PORT
+# (15432 by default, because 5432 is often taken by another Postgres on the same host).
+[Unit]
+Description=Home Assistant recorder database (PostgreSQL, optional)
+Before=homeassistant.service
+
+[Container]
+ContainerName=homeassistant-db
+Image=docker.io/library/postgres:16.15-alpine
+Network=homeassistant.network
+PublishPort=127.0.0.1:@@HA_DB_PORT@@:5432
+Volume=homeassistant-db-data.volume:/var/lib/postgresql/data
+# Created by scripts/install.sh from 48 random characters; never printed or stored in the repo.
+Secret=homeassistant-db-password,type=env,target=POSTGRES_PASSWORD
+Environment=POSTGRES_USER=homeassistant
+Environment=POSTGRES_DB=homeassistant
+Label=io.woowtech.app=homeassistant
+LogDriver=journald
+PodmanArgs=--stop-timeout=60
+HealthCmd=pg_isready -U homeassistant -d homeassistant
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=5
+HealthStartPeriod=60s
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+TimeoutStopSec=90
+
+[Install]
+WantedBy=default.target
+# Installing this unit makes HA require it (and, with Before=, start after it) without any
+# edit to homeassistant.container.
+RequiredBy=homeassistant.service

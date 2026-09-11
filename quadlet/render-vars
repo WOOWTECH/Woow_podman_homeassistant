@@ -1,0 +1,15 @@
+# Variables that ql_render may substitute as @@NAME@@ in quadlet/, quadlet/optional/ and
+# systemd/ (decision D2: rendered once, at install time). Anything else is copied verbatim.
+
+# Straight from ~/.config/homeassistant/homeassistant.env
+HA_CONFIG_DIR
+HA_PORT
+HA_DB_PORT
+
+# Computed by scripts/render-args.sh (whole lines, may be several lines or a comment)
+HA_PRIVILEGE_LINE
+HA_DEVICE_LINES
+HA_TZ_LINE
+HA_DBUS_LINE
+HA_MATTER_LISTEN_LINE
+HA_REPO_DIR

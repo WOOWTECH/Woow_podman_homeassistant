@@ -1,0 +1,15 @@
+# Daily hot backup of the Home Assistant config dir (optional, HA_BACKUP_TIMER=true, i.e.
+# scripts/install.sh --with-backup-timer). HA keeps running: the SQLite databases are copied
+# with SQLite's online backup API inside the container. It runs scripts/backup.sh from the
+# repo checkout that installed it, so keep that checkout in place.
+[Unit]
+Description=Home Assistant hot backup (WOOWTECH)
+Documentation=https://github.com/WOOWTECH/Woow_podman_homeassistant
+After=homeassistant.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash "@@HA_REPO_DIR@@/scripts/backup.sh" --hot
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1800

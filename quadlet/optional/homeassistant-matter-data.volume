@@ -1,0 +1,5 @@
+# Matter fabric storage (optional, HA_MATTER=true). VolumeName= keeps the name stable;
+# without it Quadlet would create "systemd-homeassistant-matter-data".
+[Volume]
+VolumeName=homeassistant-matter-data
+Label=io.woowtech.app=homeassistant
