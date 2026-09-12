@@ -182,8 +182,11 @@ img=$(ha_installed_image)
   printf 'REPO_COMMIT=%s\n' "$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 } >"$dest/manifest.env"
 chmod 600 -- "$dest/manifest.env"
-(cd -- "$dest" && find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -r -d '\n' sha256sum -- >.sha256sums.part && mv -f .sha256sums.part SHA256SUMS) \
-  || ql_die "cannot write $dest/SHA256SUMS"
+# the sums are written outside $dest: a file created there first would list itself
+sums=$(mktemp "${TMPDIR:-/tmp}/ha-sha256sums.XXXXXX") || ql_die "cannot create a temporary file"
+(cd -- "$dest" && find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort \
+  | xargs -r -d '\n' sha256sum --) >"$sums" || { rm -f -- "$sums"; ql_die "cannot write $dest/SHA256SUMS"; }
+mv -f -- "$sums" "$dest/SHA256SUMS" || ql_die "cannot write $dest/SHA256SUMS"
 chmod 600 -- "$dest/SHA256SUMS"
 done_ok=1
 
