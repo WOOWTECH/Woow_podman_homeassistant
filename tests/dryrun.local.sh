@@ -72,6 +72,7 @@ check "unprivileged: pinned time zone" has_line "$up/homeassistant.container" 'T
 check "unprivileged: BlueZ over /run/dbus" has_line "$up/homeassistant.container" 'Volume=/run/dbus:/run/dbus:ro'
 check "unprivileged: Matter on every interface" no_line "$up/homeassistant-matter.container" '^Environment=LISTEN_ADDRESS='
 check "unprivileged: Postgres port" has_line "$up/homeassistant-db.container" 'PublishPort=127.0.0.1:25432:5432'
+# shellcheck disable=SC2016 # the unit really contains the literal $$ systemd escape
 check "ExecStartPre escapes \$ for systemd" grep -qF '[ $$i -ge 60 ]' "$tp/homeassistant.container"
 check "backup timer runs the checkout via %h or a non-home path" \
   no_line "$ex/homeassistant-backup.service" "^ExecStart=.*${HOME}/"

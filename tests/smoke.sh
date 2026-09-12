@@ -19,6 +19,8 @@
 #   --legacy        the container is not Quadlet-managed (pre-migration snapshot, after rollback)
 #   --env FILE      settings file (default ~/.config/homeassistant/homeassistant.env)
 #
+# HA_SMOKE_MDNS='' turns off the mDNS probe (hosts that block multicast, and the script tests).
+#
 # API checks need a long-lived token stored as a curl header file,
 # ~/.config/homeassistant/smoke.header (0600): "Authorization: Bearer <token>". Without it the
 # API checks are skipped and the report says so.
@@ -35,6 +37,7 @@ env_file=${HA_ENV_FILE:-$HOME/.config/homeassistant/homeassistant.env}
 header=${HA_SMOKE_HEADER:-$HOME/.config/homeassistant/smoke.header}
 qdir=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
 poll=${HA_SMOKE_POLL:-15}
+mdns=${HA_SMOKE_MDNS-$REPO/tests/lib/mdns_query.py}
 wait_s=0 settle=180 snapshot='' compare='' public='' strict=0 mode=quadlet
 while (($#)); do
   case $1 in
@@ -108,7 +111,11 @@ gather() {
   fact http_homekit "$(code_of http://127.0.0.1:21064/ 5)"
   fact http_hamcp "$(code_of http://127.0.0.1:9584/ 5)"
   fact http_matter "$(code_of http://127.0.0.1:5580/ 5)"
-  fact mdns_hap "$(python3 "$REPO/tests/lib/mdns_query.py" _hap._tcp.local --timeout 3 2>/dev/null | awk '{print $1}' | sort -un | tr '\n' ' ')"
+  if [[ -n $mdns ]]; then
+    fact mdns_hap "$(python3 "$mdns" _hap._tcp.local --timeout 3 2>/dev/null | awk '{print $1}' | sort -un | tr '\n' ' ')"
+  else
+    fact mdns_hap ''
+  fi
   fact matter_enabled "$matter"
   fact want_config_src "$(realpath -m -- "$cfg")"
   fact ha_version_file "$(cat -- "$cfg/.HA_VERSION" 2>/dev/null || true)"
