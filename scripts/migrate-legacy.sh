@@ -336,7 +336,7 @@ if [[ -f $HA_ENV_FILE ]] && ! cmp -s -- "$HA_ENV_FILE" "$WORK/derived.env"; then
   ql_warn "$HA_ENV_FILE will be replaced by the derived settings (a copy is kept). Difference:"
   diff -u -- "$HA_ENV_FILE" "$WORK/derived.env" | sed 's/^/    /' >&2 || true
 fi
-ha_check_config_dir
+ha_check_config_dir 0 # the dir must already exist: this adopts a running deployment
 ha_check_devices
 port=$(ql_env_get HA_PORT 8123)
 
@@ -429,11 +429,11 @@ ql_info "migration $ts; record and backups in $B"
 REC=$B/migration.env
 
 # these three are called by name through ql_wait_until
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 not_running() { ! ha_container_running "$1"; }
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 port_free() { [[ -z $(ss -Hltn "sport = :$1" 2>/dev/null) ]]; }
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 radio_free() { [[ -z $(ha_device_holders "$1") ]]; }
 # restart_legacy: undo the stop, before anything else was changed
 restart_legacy() {

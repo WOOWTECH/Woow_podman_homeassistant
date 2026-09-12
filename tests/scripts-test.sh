@@ -367,7 +367,7 @@ t_backup_hot_then_restore_round_trip() {
     || die_t "backup is incomplete: $(ls -R "$bdir")"
   (cd "$bdir" && sha256sum -c --quiet SHA256SUMS) || die_t "checksums do not verify"
   tar -tzf "$bdir/config.tgz" | grep -q 'ha-config/home-assistant_v2.db' && die_t "the live database must not be in the archive"
-  eq "$(cat "$bdir/manifest.env" | sed -n 's/^MODE=//p')" hot "backup mode"
+  eq "$(sed -n 's/^MODE=//p' "$bdir/manifest.env")" hot "backup mode"
   # restore over a damaged config dir; restore.sh stops the unit itself
   rm -f "$CFG/marker.txt"
   echo broken >"$CFG/.storage/core.entity_registry"
