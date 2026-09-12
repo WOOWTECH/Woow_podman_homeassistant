@@ -105,9 +105,13 @@ ha_installed() {
 
 # ha_units_installed: the units this app has installed, in start order
 ha_units_installed() {
-  local u
+  local u unit
   for u in homeassistant-db.container homeassistant-matter.container homeassistant.container homeassistant-backup.timer; do
-    ha_installed "$u" && ql_unit_for "$u"
+    ha_installed "$u" || continue
+    # ql_unit_for prints without a trailing newline (it is meant for $(...)): add one, or the
+    # callers' mapfile gets a single glued-together "a.serviceb.service" element.
+    unit=$(ql_unit_for "$u")
+    [[ -z $unit ]] || printf '%s\n' "$unit"
   done
   return 0
 }
