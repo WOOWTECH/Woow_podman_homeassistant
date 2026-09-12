@@ -131,11 +131,19 @@ ql_check_container_collision "$HA_CONTAINER" "$HA_UNIT"
 ((with_matter == 0)) || ql_check_container_collision "$HA_MATTER_CONTAINER" "$HA_MATTER_UNIT"
 ((with_pg == 0)) || ql_check_container_collision "$HA_DB_CONTAINER" "$HA_DB_UNIT"
 ql_check_path_mounted "$cfg" "$HA_CONTAINER"
-ha_check_port die tcp "$port" "Home Assistant" "$HA_UNIT"
-ha_check_port warn tcp 21064 "HomeKit bridge" "$HA_UNIT"
-ha_check_port warn tcp 9584 "HA-MCP" "$HA_UNIT"
-((with_matter == 0)) || ha_check_port die tcp 5580 "Matter server" "$HA_MATTER_UNIT"
-((with_pg == 0)) || ha_check_port die tcp "$dbport" "PostgreSQL" "$HA_DB_UNIT"
+# Ports are only checked when the container is not running: when it is, the collision guard
+# above has already confirmed that it is ours, and it is the one holding them.
+if ! ha_container_running "$HA_CONTAINER"; then
+  ha_check_port die tcp "$port" "Home Assistant" "$HA_UNIT"
+  ha_check_port warn tcp 21064 "HomeKit bridge" "$HA_UNIT"
+  ha_check_port warn tcp 9584 "HA-MCP" "$HA_UNIT"
+fi
+if ((with_matter)) && ! ha_container_running "$HA_MATTER_CONTAINER"; then
+  ha_check_port die tcp 5580 "Matter server" "$HA_MATTER_UNIT"
+fi
+if ((with_pg)) && ! ha_container_running "$HA_DB_CONTAINER"; then
+  ha_check_port die tcp "$dbport" "PostgreSQL" "$HA_DB_UNIT"
+fi
 
 # ---- 5. stage the selected units, render, validate --------------------------------------------
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/$HA_APP-install.XXXXXX")
