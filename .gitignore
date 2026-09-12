@@ -13,6 +13,10 @@ config/*.env
 secrets.yaml
 .storage/
 
+# Test and tooling leftovers
+__pycache__/
+*.pyc
+
 # OS / editor files
 .DS_Store
 Thumbs.db
