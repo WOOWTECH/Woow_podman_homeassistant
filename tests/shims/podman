@@ -1,0 +1,377 @@
+#!/usr/bin/env python3
+"""tests/shims/podman: a podman double for tests/scripts-test.sh. It never touches real
+containers: everything lives under $SHIM_STATE.
+
+    containers/<name>/inspect.json   one podman-inspect object (State, Config, HostConfig, Mounts)
+    containers/<name>/devices        one device path per line, for `podman exec NAME test -c DEV`
+    images/<key>.json                {"id": ..., "labels": {...}} for an image reference
+    volumes/<name>/                  volume content        secrets/<name>     secret data
+    networks/<name>                  network marker        calls              every call, one per line
+
+Only the --format strings the repo's scripts really use are implemented; an unknown one exits
+99 so a test fails loudly instead of silently getting an empty string.
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import shimlib  # noqa: E402
+
+S = os.environ.get("SHIM_STATE")
+if not S:
+    sys.exit("shim podman: SHIM_STATE is not set")
+ARGS = sys.argv[1:]
+with open(os.path.join(S, "calls"), "a", encoding="utf-8") as f:
+    f.write("podman " + " ".join(ARGS) + "\n")
+
+
+def path(*p):
+    return os.path.join(S, *p)
+
+
+def imgkey(ref):
+    return ref.replace("/", "_").replace(":", "_").replace("@", "_")
+
+
+def read_json(p, default=None):
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def ctr(name):
+    d = read_json(path("containers", name, "inspect.json"))
+    return d[0] if isinstance(d, list) and d else (None if isinstance(d, list) else d)
+
+
+def save_ctr(name, obj):
+    with open(path("containers", name, "inspect.json"), "w", encoding="utf-8") as f:
+        json.dump([obj], f)
+
+
+def config_src(c):
+    for m in c.get("Mounts", []):
+        if m.get("Destination") == "/config":
+            return m.get("Source", "")
+    return ""
+
+
+def fmt_container(f, c):
+    health = (c.get("State", {}).get("Health") or {}).get("Status", "")
+    table = {
+        "{{.State.Running}}": lambda: str(c["State"].get("Running", False)).lower(),
+        '{{index .Config.Labels "PODMAN_SYSTEMD_UNIT"}}': lambda: c["Config"].get("Labels", {}).get("PODMAN_SYSTEMD_UNIT", "<no value>"),
+        "{{.ImageName}}": lambda: c.get("ImageName", ""),
+        "{{json .Config.CreateCommand}}": lambda: json.dumps(c["Config"].get("CreateCommand", [])),
+        '{{range .Mounts}}{{if eq .Destination "/config"}}{{.Source}}{{end}}{{end}}': lambda: config_src(c),
+        "{{.State.Status}}|{{if .Config.Healthcheck}}hc{{end}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.StartedAt}}":
+            lambda: "%s|%s|%s|%s" % (c["State"].get("Status", ""), "hc" if c["Config"].get("Healthcheck") else "", health, c["State"].get("StartedAt", "")),
+        '{{.State.Running}}|{{index .Config.Labels "PODMAN_SYSTEMD_UNIT"}}|{{.ImageName}}|{{.Config.StopTimeout}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}':
+            lambda: "%s|%s|%s|%s|%s" % (str(c["State"].get("Running", False)).lower(),
+                                        c["Config"].get("Labels", {}).get("PODMAN_SYSTEMD_UNIT", "<no value>"),
+                                        c.get("ImageName", ""), c["Config"].get("StopTimeout", ""), health),
+        "{{range .Mounts}}{{$.Name}}|{{.Source}}{{println}}{{end}}":
+            lambda: "".join("%s|%s\n" % (c.get("Name", ""), m.get("Source", "")) for m in c.get("Mounts", [])),
+    }
+    if f not in table:
+        sys.exit("shim podman: unhandled container --format %r (add it to tests/shims/podman)" % f)
+    return table[f]()
+
+
+def take_format(args):
+    """--format F / -f F anywhere in args; returns (format or None, remaining args)."""
+    out, fmt, i = [], None, 0
+    while i < len(args):
+        if args[i] in ("--format", "-f") and i + 1 < len(args):
+            fmt = args[i + 1]
+            i += 2
+            continue
+        out.append(args[i])
+        i += 1
+    return fmt, out
+
+
+def do_inspect(args):
+    fmt, rest = take_format(args)
+    rest = [a for a in rest if a not in ("--type", "container")]
+    objs = []
+    for name in rest:
+        c = ctr(name)
+        if c is None:
+            print("Error: no such object: %s" % name, file=sys.stderr)
+            return 125
+        objs.append(c)
+    if fmt is None:
+        print(json.dumps(objs, indent=2))
+        return 0
+    for c in objs:
+        out = fmt_container(fmt, c)
+        print(out if out.endswith("\n") else out, end="" if out.endswith("\n") else "\n")
+    return 0
+
+
+def do_image(args):
+    if args[:1] == ["exists"]:
+        return 0 if os.path.exists(path("images", imgkey(args[1]) + ".json")) else 1
+    if args[:1] == ["inspect"]:
+        fmt, rest = take_format(args[1:])
+        ref = rest[-1]
+        data = read_json(path("images", imgkey(ref) + ".json"))
+        if data is None:  # also accept an image id
+            for f in os.listdir(path("images")) if os.path.isdir(path("images")) else []:
+                d = read_json(path("images", f))
+                if d and d.get("id") == ref:
+                    data = d
+                    break
+        if data is None:
+            print("Error: no such image: %s" % ref, file=sys.stderr)
+            return 125
+        if fmt == "{{.Id}}":
+            print(data.get("id", ""))
+        elif fmt == '{{index .Labels "io.hass.version"}}':
+            print(data.get("labels", {}).get("io.hass.version", "<no value>"))
+        elif fmt is None:
+            print(json.dumps([data]))
+        else:
+            sys.exit("shim podman: unhandled image --format %r" % fmt)
+        return 0
+    return 0
+
+
+def do_images(args):
+    fmt, rest = take_format(args)
+    repo = rest[0] if rest else ""
+    if fmt != "{{.Repository}}:{{.Tag}}":
+        sys.exit("shim podman: unhandled images --format %r" % fmt)
+    d = path("images")
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        data = read_json(path("images", f)) or {}
+        ref = data.get("ref", "")
+        if ref and (not repo or ref.startswith(repo + ":") or ref == repo):
+            print(ref)
+    return 0
+
+
+def do_pull(args):
+    ref = args[-1]
+    os.makedirs(path("images"), exist_ok=True)
+    with open(path("images", imgkey(ref) + ".json"), "w", encoding="utf-8") as f:
+        json.dump({"ref": ref, "id": "sha256:" + imgkey(ref), "labels": {}}, f)
+    return 0
+
+
+def do_secret(args):
+    sub = args[0]
+    os.makedirs(path("secrets"), exist_ok=True)
+    if sub == "exists":
+        return 0 if os.path.exists(path("secrets", args[1])) else 1
+    if sub == "create":
+        rest = [a for a in args[1:] if not a.startswith("--")]
+        # drop --label values
+        skip, clean = False, []
+        for a in args[1:]:
+            if skip:
+                skip = False
+                continue
+            if a == "--label":
+                skip = True
+                continue
+            if a.startswith("--"):
+                continue
+            clean.append(a)
+        name, src = clean[0], clean[1]
+        data = sys.stdin.buffer.read() if src == "-" else open(src, "rb").read()
+        with open(path("secrets", name), "wb") as f:
+            f.write(data)
+        print("shimsecretid")
+        return 0
+    if sub == "inspect":
+        name = args[-1]
+        if not os.path.exists(path("secrets", name)):
+            return 125
+        sys.stdout.write(open(path("secrets", name), encoding="utf-8").read() + "\n")
+        return 0
+    if sub == "rm":
+        if not os.path.exists(path("secrets", args[1])):
+            return 1
+        os.remove(path("secrets", args[1]))
+        return 0
+    return 0
+
+
+def do_volume(args):
+    sub = args[0]
+    os.makedirs(path("volumes"), exist_ok=True)
+    if sub == "exists":
+        return 0 if os.path.isdir(path("volumes", args[1])) else 1
+    if sub == "create":
+        name = [a for a in args[1:] if not a.startswith("--")][-1]
+        os.makedirs(path("volumes", name), exist_ok=True)
+        return 0
+    if sub == "export":
+        vol = args[1]
+        out = args[args.index("-o") + 1]
+        with tarfile.open(out, "w") as t:
+            t.add(path("volumes", vol), arcname=".")
+        return 0
+    if sub == "import":
+        vol, src = args[1], args[2]
+        os.makedirs(path("volumes", vol), exist_ok=True)
+        with tarfile.open(src) as t:
+            t.extractall(path("volumes", vol))
+        return 0
+    if sub == "inspect":
+        fmt, rest = take_format(args[1:])
+        if fmt == "{{.Mountpoint}}":
+            print(path("volumes", rest[-1]))
+            return 0
+        print("")
+        return 0
+    if sub == "rm":
+        name = [a for a in args[1:] if not a.startswith("-")][0]
+        if not os.path.isdir(path("volumes", name)):
+            return 1
+        shutil.rmtree(path("volumes", name))
+        return 0
+    return 0
+
+
+def do_network(args):
+    sub = args[0]
+    os.makedirs(path("networks"), exist_ok=True)
+    if sub == "exists":
+        return 0 if os.path.exists(path("networks", args[1])) else 1
+    if sub == "rm":
+        if not os.path.exists(path("networks", args[1])):
+            return 1
+        os.remove(path("networks", args[1]))
+        return 0
+    if sub == "inspect":
+        print("")
+        return 0
+    return 0
+
+
+def do_exec(args):
+    args = [a for a in args if a not in ("-i", "-t", "-it")]
+    name, cmd = args[0], args[1:]
+    c = ctr(name)
+    if c is None or not c["State"].get("Running"):
+        print("Error: container %s is not running" % name, file=sys.stderr)
+        return 125
+    if cmd[:1] == ["test"]:
+        dev = cmd[-1]
+        devs = []
+        p = path("containers", name, "devices")
+        if os.path.exists(p):
+            devs = [x.strip() for x in open(p, encoding="utf-8")]
+        return 0 if dev in devs else 1
+    if cmd[:2] == ["python3", "-c"]:
+        # /config/... maps to the host path of the config bind mount
+        src = config_src(c)
+        mapped = [a.replace("/config", src, 1) if a.startswith("/config") else a for a in cmd[3:]]
+        return subprocess.call([sys.executable, "-c", cmd[2]] + mapped)
+    return 0
+
+
+def main():
+    if not ARGS:
+        return 0
+    if ARGS[0] == "--version":
+        print("podman version %s" % os.environ.get("SHIM_PODMAN_VERSION", "4.9.3"))
+        return 0
+    cmd, rest = ARGS[0], ARGS[1:]
+    if cmd == "container":
+        if rest[0] == "exists":
+            return 0 if ctr(rest[1]) is not None else 1
+        if rest[0] == "inspect":
+            return do_inspect(rest[1:])
+        return 0
+    if cmd == "inspect":
+        return do_inspect(rest)
+    if cmd in ("start", "stop", "rm"):
+        names = [a for a in rest if not a.startswith("-")]
+        # drop the value of -t/--time
+        clean, skip = [], False
+        for a in rest:
+            if skip:
+                skip = False
+                continue
+            if a in ("-t", "--time"):
+                skip = True
+                continue
+            if not a.startswith("-"):
+                clean.append(a)
+        names = clean
+        for n in names:
+            c = ctr(n)
+            if c is None:
+                print("Error: no such container %s" % n, file=sys.stderr)
+                return 125
+            if cmd == "rm":
+                shutil.rmtree(path("containers", n))
+                continue
+            c["State"]["Running"] = cmd == "start"
+            c["State"]["Status"] = "running" if cmd == "start" else "exited"
+            save_ctr(n, c)
+        shimlib.sync_ports()
+        return 0
+    if cmd == "rename":
+        old, new = rest[0], rest[1]
+        if ctr(old) is None:
+            print("Error: no such container %s" % old, file=sys.stderr)
+            return 125
+        os.rename(path("containers", old), path("containers", new))
+        c = ctr(new)
+        c["Name"] = new
+        save_ctr(new, c)
+        shimlib.sync_ports()
+        return 0
+    if cmd == "ps":
+        names = []
+        d = path("containers")
+        for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            c = ctr(n)
+            if c and c["State"].get("Running"):
+                names.append(n)
+        if "-q" in rest:
+            print("\n".join(names))
+        elif any(a.startswith("volume=") for a in rest):
+            pass
+        return 0
+    if cmd == "image":
+        return do_image(rest)
+    if cmd == "images":
+        return do_images(rest)
+    if cmd == "pull":
+        return do_pull(rest)
+    if cmd == "rmi":
+        ref = rest[-1]
+        p = path("images", imgkey(ref) + ".json")
+        if not os.path.exists(p):
+            return 1
+        os.remove(p)
+        return 0
+    if cmd == "secret":
+        return do_secret(rest)
+    if cmd == "volume":
+        return do_volume(rest)
+    if cmd == "network":
+        return do_network(rest)
+    if cmd == "exec":
+        return do_exec(rest)
+    if cmd == "unshare":
+        return subprocess.call(rest)
+    if cmd == "healthcheck":
+        return int(os.environ.get("SHIM_HC_RC", "0"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

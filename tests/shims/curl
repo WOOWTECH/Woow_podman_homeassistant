@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# tests/shims/curl: answers from $SHIM_STATE/http/<url with every non-alphanumeric turned into _>.
+# The first line of that file is the HTTP status, the rest is the body. Without a file the reply
+# is $SHIM_STATE/http_default (or 000, which behaves like a refused connection: exit 7).
+# Only the options the scripts use are handled: -s -o FILE -m N -w '%{http_code}' -H ... --data-binary
+set -u
+S=${SHIM_STATE:?SHIM_STATE is not set}
+printf 'curl %s\n' "$*" >>"$S/calls"
+url='' out='' want_code=0
+while (($#)); do
+  case $1 in
+    -o) out=$2; shift ;;
+    -w) [[ $2 == *http_code* ]] && want_code=1; shift ;;
+    -m | -H | --data-binary | -X) shift ;;
+    -s | -S | -k | -I | -f | -fsS | -sS) ;;
+    -*) ;;
+    *) url=$1 ;;
+  esac
+  shift
+done
+key=${url//[^A-Za-z0-9]/_}
+f=$S/http/$key
+code=$(cat "$S/http_default" 2>/dev/null || echo 000)
+body=''
+if [[ -f $f ]]; then
+  code=$(head -n1 "$f")
+  body=$(tail -n +2 "$f")
+fi
+[[ -z $out ]] || printf '%s' "$body" >"$out"
+((want_code)) && printf '%s' "$code"
+[[ $code == 000 ]] && exit 7
+exit 0

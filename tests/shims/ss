@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# tests/shims/ss: listening sockets come from $SHIM_STATE/ports, one per line:
+#   <tcp|udp> <port> <comm> <pid>
+# Understands the flags the scripts use (-H, -l, -n, -t/-u, -p) and the "sport = :PORT" filter.
+set -u
+S=${SHIM_STATE:?SHIM_STATE is not set}
+printf 'ss %s\n' "$*" >>"$S/calls"
+proto='' want='' showpid=0
+for a in "$@"; do
+  case $a in
+    -*)
+      [[ $a == *t* ]] && proto=tcp
+      [[ $a == *u* ]] && proto=udp
+      [[ $a == *p* ]] && showpid=1
+      ;;
+    sport*) want=${a##*:} ;;
+    :*) want=${a#:} ;;
+  esac
+done
+[[ -f $S/ports ]] || exit 0
+while read -r p port comm pid || [[ -n ${p:-} ]]; do
+  [[ -z ${p:-} ]] && continue
+  [[ -n $proto && $p != "$proto" ]] && continue
+  [[ -n $want && $port != "$want" ]] && continue
+  line="LISTEN 0      4096         0.0.0.0:$port      0.0.0.0:*"
+  ((showpid)) && line+="    users:((\"$comm\",pid=$pid,fd=9))"
+  printf '%s\n' "$line"
+done <"$S/ports"
+exit 0

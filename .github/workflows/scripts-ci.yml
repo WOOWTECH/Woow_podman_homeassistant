@@ -1,0 +1,35 @@
+# .github/workflows/scripts-ci.yml: repo-specific checks, next to the vendored quadlet-ci.yml.
+# tests/scripts-test.sh drives scripts/*.sh against the doubles in tests/shims (podman,
+# systemctl, loginctl, ss, curl): no container is created and the runner's user manager is never
+# touched. The Quadlet generator and systemd-analyze are the real ones; they only read files.
+name: scripts-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-24.04          # apt podman = 4.9.3, systemd 255: same as the WOOWTECH hosts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install podman and shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman shellcheck
+          /usr/libexec/podman/quadlet -version
+          systemd-analyze --version | sed -n 1p
+
+      - name: shellcheck the test doubles
+        run: shellcheck -x tests/shims/curl tests/shims/loginctl tests/shims/ss tests/shims/systemctl
+
+      - name: Python doubles compile
+        run: python3 -m py_compile tests/shims/podman tests/shims/shimlib.py tests/shims/_quadlet_apply.py tests/lib/*.py
+
+      - name: scripts/*.sh end-to-end tests
+        run: tests/scripts-test.sh
