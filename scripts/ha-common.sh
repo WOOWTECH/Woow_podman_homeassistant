@@ -288,9 +288,12 @@ ha_legacy_capture() {
 # out of the Quadlet container's way, in the shape the strategy asked for. Prints the name
 # the rollback record should store as RENAMED (empty on the capture path).
 ha_legacy_retire() {
-  local strategy=${1:?} sfx=${2:?} bk=${3:?} c=${4:?}
+  # The suffix is empty on the capture path: nothing is renamed there, so there is no
+  # <name>-legacy-<suffix> to name. ${2-} rather than ${2:?}, which would abort the script.
+  local strategy=${1:?} sfx=${2-} bk=${3:?} c=${4:?}
   case $strategy in
     rename)
+      [[ -n $sfx ]] || ql_die "the rename path needs a suffix for $c-legacy-<suffix>"
       podman rename "$c" "$c-legacy-$sfx" || ql_die "podman rename $c failed"
       ql_info "renamed $c to $c-legacy-$sfx (stopped, kept for rollback)"
       printf '%s' "$c-legacy-$sfx" ;;
@@ -308,14 +311,16 @@ ha_legacy_retire() {
 # whichever shape the migration used. A recreated container comes back stopped and with its
 # original restart policy; the caller starts it, exactly as it starts a renamed one.
 ha_legacy_restore() {
-  local sfx=${1:?} bk=${2:?} c=${3:?}
-  if ha_container_exists "$c-legacy-$sfx"; then
+  # An empty suffix means the migration captured rather than renamed: there is no
+  # <name>-legacy-<suffix> to look for, only the rollback copy.
+  local sfx=${1-} bk=${2:?} c=${3:?}
+  if [[ -n $sfx ]] && ha_container_exists "$c-legacy-$sfx"; then
     podman rename "$c-legacy-$sfx" "$c" || ql_die "podman rename $c-legacy-$sfx $c failed"
     ql_info "renamed $c-legacy-$sfx back to $c"
   elif [[ -f $bk/legacy-container/$c/meta ]]; then
     ql_recreate_container "$bk" "$c" >/dev/null || ql_die "could not recreate $c from $bk"
     ql_info "recreated $c from $bk/legacy-container/$c (stopped, with its original restart policy)"
   else
-    ql_die "neither the renamed container $c-legacy-$sfx nor a rollback copy in $bk exists; restore $c by hand"
+    ql_die "neither the renamed container ${sfx:+$c-legacy-$sfx }nor a rollback copy in $bk exists; restore $c by hand"
   fi
 }
