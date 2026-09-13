@@ -92,7 +92,7 @@ if ver:
 json.dump(data, open(os.path.join(state, "images", key + ".json"), "w"))
 PY
 }
-mk_container() { # mk_container NAME [key=value ...] (label image config_src privileged network devices tz running ports stop_timeout)
+mk_container() { # mk_container NAME [key=value ...] (label image config_src privileged network devices tz running ports stop_timeout restart sizerw)
   mkdir -p "$SHIM_STATE/containers/$1"
   python3 - "$SHIM_STATE" "$@" <<'PY'
 import json, os, sys
@@ -118,6 +118,8 @@ if opt.get("label"):
     labels["PODMAN_SYSTEMD_UNIT"] = opt["label"]
 obj = {
     "Name": name,
+    "Id": "cid-" + name,
+    "SizeRw": int(opt.get("sizerw", "48151168")),
     "Image": opt.get("image_id", "sha256:legacy"),
     "ImageName": opt.get("image", "ghcr.io/home-assistant/home-assistant:stable"),
     "State": {"Running": opt.get("running", "true") == "true",
@@ -128,7 +130,16 @@ obj = {
                "StopTimeout": int(opt.get("stop_timeout", "300")), "Timezone": opt.get("tz", ""),
                "Healthcheck": {"Test": ["CMD", "true"]} if opt.get("health") else None},
     "HostConfig": {"NetworkMode": opt.get("network", "host"),
-                   "Privileged": opt.get("privileged", "true") == "true", "Devices": []},
+                   "Privileged": opt.get("privileged", "true") == "true", "Devices": [],
+                   "AutoRemove": False,
+                   # the restart policy podman records on the container object. A legacy HA
+                   # started by a hand-written unit usually has "unless-stopped"; "always" is
+                   # the one podman-restart.service revives at boot.
+                   "RestartPolicy": {"Name": opt.get("restart", "unless-stopped"),
+                                     "MaximumRetryCount": 0}},
+    "NetworkSettings": {"Networks": {} if opt.get("network", "host") == "host"
+                        else {opt.get("network", "host"): {"Aliases": [], "IPAddress": "", "MacAddress": ""}},
+                        "Ports": {}},
     "Mounts": mounts,
 }
 json.dump([obj], open(os.path.join(state, "containers", name, "inspect.json"), "w"))
@@ -486,10 +497,17 @@ setup_legacy() { # the toypark1234 shape: privileged, host network, a by-id devi
   mk_image "$PIN_IMAGE" "$PIN_VER" sha256:legacy
   mk_container homeassistant "config_src=$CFG" privileged=true network=host \
     devices=/dev/kmsg:/dev/kmsg:rwm image=ghcr.io/home-assistant/home-assistant:stable \
-    image_id=sha256:legacy ports='tcp 8123 python3 4242'
+    image_id=sha256:legacy ports='tcp 8123 python3 4242' "${@}"
   mk_legacy_unit
   set_http http://127.0.0.1:8123/manifest.json 200
 }
+# the woowtechopenclaw shape: podman-restart.service enabled, so at boot the user manager runs
+# `podman start --all --filter restart-policy=always`
+enable_restart_unit() {
+  mkdir -p "$SHIM_STATE/units/podman-restart.service"
+  echo enabled >"$SHIM_STATE/units/podman-restart.service/UnitFileState"
+}
+capture_dir() { printf '%s' "$1/legacy-container/homeassistant"; }
 
 t_migrate_dry_run_derives_the_settings() {
   need_quadlet
@@ -561,6 +579,106 @@ t_migrate_then_rollback() {
   eq "$(cat "$SHIM_STATE/units/podman-ha.service/UnitFileState")" enabled "the legacy unit must be enabled again"
   eq "$(cat "$SHIM_STATE/units/podman-ha.service/active")" active "the legacy unit must run again"
   eq "$(sed -n 's/^STATUS=//p' "$B/migration.env")" rolled-back "recorded status after the rollback"
+}
+
+# ---- the legacy rollback model: rename (toypark) vs capture (openclaw) ------------------------
+t_migrate_keeps_the_rename_path_when_the_restart_unit_is_disabled() {
+  need_quadlet
+  setup_legacy restart=always # even an `always` container: nothing starts it at boot here
+  smoke_stub 0 0
+  expect_ok "$R/scripts/migrate-legacy.sh" --yes
+  has "$OUT" "podman-restart.service is not enabled"
+  local renamed B
+  renamed=$(basename "$(ls -d "$SHIM_STATE"/containers/homeassistant-legacy-*)")
+  [[ -d $SHIM_STATE/containers/$renamed ]] || die_t "the legacy container was not renamed"
+  B=$(ls -d "$HOME"/backups/homeassistant/ha-pre-quadlet-*)
+  eq "$(sed -n 's/^STRATEGY=//p' "$B/migration.env")" rename "recorded strategy"
+  eq "$(sed -n 's/^RENAMED=//p' "$B/migration.env")" "$renamed" "recorded renamed container"
+  [[ ! -e $(capture_dir "$B") ]] || die_t "the rename path must not write a capture"
+  eq "$(ncalls 'podman commit')" 0 "the rename path must not commit"
+  eq "$(ncalls 'podman rm homeassistant')" 0 "the rename path must not remove the legacy container"
+}
+
+t_migrate_captures_instead_of_renaming_when_the_restart_unit_would_revive_it() {
+  need_quadlet
+  setup_legacy restart=always
+  enable_restart_unit
+  smoke_stub 0 0
+  expect_ok "$R/scripts/migrate-legacy.sh" --yes
+  has "$OUT" "podman-restart.service is enabled"
+  has "$OUT" "restart-policy=always"
+  local B D
+  B=$(ls -d "$HOME"/backups/homeassistant/ha-pre-quadlet-*)
+  D=$(capture_dir "$B")
+  eq "$(sed -n 's/^STRATEGY=//p' "$B/migration.env")" capture "recorded strategy"
+  eq "$(sed -n 's/^RENAMED=//p' "$B/migration.env")" "" "nothing was renamed"
+  ls -d "$SHIM_STATE"/containers/homeassistant-legacy-* >/dev/null 2>&1 \
+    && die_t "the capture path must not leave a renamed copy that podman-restart would revive"
+  for f in meta inspect.json createcommand.argv0 recreate.argv0 mounts NOTES.txt; do
+    [[ -s $D/$f ]] || die_t "the capture is missing $f"
+  done
+  eq "$(sed -n 's/^RECREATABLE=//p' "$D/meta")" 1 "the capture is replayable"
+  eq "$(sed -n 's/^RESTART_POLICY=//p' "$D/meta")" always "the policy is recorded"
+  # --commit: HA pip-installs integration requirements into its own container, so the
+  # writable layer has to survive the removal
+  [[ -n $(sed -n 's/^COMMIT_IMAGE=//p' "$D/meta") ]] || die_t "the capture did not commit the writable layer"
+  [[ $(ncalls 'podman commit') -ge 1 ]] || die_t "podman commit was never called"
+  # the legacy container is gone, and it went with a plain rm: `rm -v` would delete the
+  # anonymous volumes the capture expects to find again
+  hasnt "$(calls)" "podman rm -v" "rm -v would delete the anonymous volumes"
+  eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[0]["Config"]["Labels"].get("PODMAN_SYSTEMD_UNIT",""))' "$SHIM_STATE/containers/homeassistant/inspect.json")" \
+    homeassistant.service "the container named homeassistant is now the Quadlet one"
+  eq "$(cat "$SHIM_STATE/units/podman-ha.service/UnitFileState")" disabled "the legacy unit must be disabled"
+}
+
+t_rollback_recreates_the_captured_container_with_its_policy() {
+  need_quadlet
+  setup_legacy restart=always
+  enable_restart_unit
+  smoke_stub 0 0
+  expect_ok "$R/scripts/migrate-legacy.sh" --yes
+  smoke_stub 0
+  expect_ok "$R/scripts/migrate-legacy.sh" --rollback --yes
+  has "$OUT" "recreated homeassistant"
+  [[ -d $SHIM_STATE/containers/homeassistant ]] || die_t "the legacy container was not recreated"
+  eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[0]["HostConfig"]["RestartPolicy"]["Name"])' "$SHIM_STATE/containers/homeassistant/inspect.json")" \
+    always "the original restart policy comes back; podman cannot change one afterwards"
+  # it comes back from the committed image, so the pip-installed integration requirements
+  # are there rather than being re-installed on the next start
+  eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[0]["ImageName"])' "$SHIM_STATE/containers/homeassistant/inspect.json" | cut -d/ -f1-2)" \
+    localhost/woow-legacy "the recreate starts from the committed image"
+  [[ ! -e $(Q)/homeassistant.container ]] || die_t "the Quadlet unit was not removed"
+  eq "$(cat "$SHIM_STATE/units/podman-ha.service/UnitFileState")" enabled "the legacy unit must be enabled again"
+  eq "$(cat "$SHIM_STATE/units/podman-ha.service/active")" active "the legacy unit must run again"
+}
+
+t_migrate_refuses_the_capture_path_for_an_api_created_container() {
+  need_quadlet
+  setup_legacy restart=always
+  enable_restart_unit
+  # a container created through the podman API (docker-compose over the socket, podman play)
+  # records no CreateCommand, so there is nothing to replay and no way back
+  python3 - "$SHIM_STATE/containers/homeassistant/inspect.json" <<'PY2'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d[0]["Config"]["CreateCommand"] = []
+json.dump(d, open(sys.argv[1], "w"))
+PY2
+  expect_fail "$R/scripts/migrate-legacy.sh" --yes
+  has "$OUT" "empty CreateCommand"
+  [[ -d $SHIM_STATE/containers/homeassistant ]] || die_t "the legacy container must be untouched"
+  [[ ! -e $(Q)/homeassistant.container ]] || die_t "nothing may be installed after the refusal"
+  eq "$(ncalls 'podman rm homeassistant')" 0 "nothing was removed"
+}
+
+t_migrate_dry_run_reports_which_rollback_path_applies() {
+  need_quadlet
+  setup_legacy restart=always
+  enable_restart_unit
+  expect_ok "$R/scripts/migrate-legacy.sh" --dry-run
+  has "$OUT" "capture homeassistant"
+  [[ -d $SHIM_STATE/containers/homeassistant ]] || die_t "--dry-run must change nothing"
+  eq "$(ncalls 'podman commit')" 0 "--dry-run must not commit"
 }
 
 t_migrate_rolls_back_when_the_post_check_fails() {

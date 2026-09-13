@@ -267,8 +267,10 @@ The script derives the settings from `podman inspect` (the `/config` bind, `--pr
 devices from the CreateCommand, the time zone, `/run/dbus`), refuses a non-host network, mounts
 the new unit would not carry and an HA version other than this checkout's pin, takes a pre-flight
 snapshot, stops the legacy deployment gracefully, backs it up cold, disables the legacy unit
-(the file is kept) and renames the legacy container to `<name>-legacy-<timestamp>` before
-installing. It then compares the result with the snapshot and rolls back automatically if a
+(the file is kept) and retires the legacy container before installing — renamed to
+`<name>-legacy-<timestamp>` and left stopped, or, where `podman-restart.service` would revive
+such a copy at the next boot, captured into the backup and removed
+([which shape, and why](docs/migrating.md#which-rollback-shape)). It then compares the result with the snapshot and rolls back automatically if a
 critical check fails. Everything is recorded under `$HA_BACKUP_DIR/ha-pre-quadlet-<timestamp>/`.
 
 Full walkthrough, including the token the comparison needs and the cleanup after the soak:

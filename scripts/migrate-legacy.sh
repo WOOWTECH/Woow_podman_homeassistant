@@ -25,14 +25,27 @@
 #   4. graceful stop: the legacy unit, then `podman stop -t 300`; wait until the container,
 #      port 8123 and the Zigbee radio are free
 #   5. cold backup of the config dir (scripts/backup.sh --cold)
-#   6. disable the legacy unit (the file stays) and rename the container to <name>-legacy-<ts>,
-#      stopped and kept for rollback (Quadlet's `podman run --replace` would delete it)
+#   6. disable the legacy unit (the file stays) and retire the container so that Quadlet's
+#      `podman run --replace` cannot delete it: renamed to <name>-legacy-<ts> and left
+#      stopped, or - see "Rollback shape" below - captured and removed
 #   7. write ~/.config/homeassistant/homeassistant.env and run scripts/install.sh
 #   8. post-check: tests/smoke.sh --compare against the snapshot. A critical failure rolls back
 #      automatically (unless --no-auto-rollback); degraded checks keep the migration, exit 2.
 #
+# Rollback shape (STANDARD 7a): renaming the legacy container and leaving it stopped keeps a
+# rollback only while nothing starts it again. The user unit podman-restart.service runs
+# `podman start --all --filter restart-policy=always` at boot, so where that unit is enabled
+# AND the legacy container's restart policy is exactly `always`, a renamed copy revives at the
+# next boot and a second Home Assistant claims the name, port 8123, the Zigbee radio and the
+# same SQLite recorder database. podman 4.9.3 cannot change a restart policy afterwards, so
+# the script then captures the container into the backup directory and removes it, and
+# --rollback recreates it with ql_recreate_container. The capture uses --commit, because HA
+# pip-installs integration requirements into its own container: without it a rollback would
+# start from a bare image and have to re-install them. ql_rollback_strategy asks this host's
+# real state, never its name; --dry-run reports which path applies.
+#
 # --rollback [<ts>] (default: the newest migration) restores the legacy setup: stop and remove
-# the Quadlet HA unit, rename the legacy container back, re-enable and start its unit, compare
+# the Quadlet HA unit, bring the legacy container back, re-enable and start its unit, compare
 # with the snapshot. --restore-config first puts the pre-migration cold backup back (only when
 # the config dir itself is damaged; changes since the migration are lost). Never start the
 # legacy unit while homeassistant.service is active: both would manage a container named
@@ -64,7 +77,7 @@ while (($#)); do
       if [[ ${2:-} != '' && ${2:-} != -* ]]; then rb_ts=$2; shift; fi
       ;;
     --restore-config) restore_cfg=1 ;;
-    -h | --help) sed -n '2,41p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,52p' "$0"; exit 0 ;;
     *) ql_die "unknown option $1 (see --help)" ;;
   esac
   shift
@@ -123,8 +136,8 @@ do_rollback() {
     lu=$(ha_container_unit "$cname")
     if [[ $lu == "$HA_UNIT" ]]; then
       podman rm -f -t 300 "$cname" >/dev/null || ql_die "cannot remove the Quadlet container $cname"
-    elif [[ -n $renamed ]] && ha_container_exists "$renamed"; then
-      ql_die "a container named $cname exists that is not the Quadlet one; cannot rename $renamed back"
+    elif [[ -n $renamed ]] || [[ -f $B/legacy-container/$cname/meta ]]; then
+      ql_die "a container named $cname exists that is not the Quadlet one; cannot bring the legacy $cname back"
     fi
   fi
 
@@ -134,10 +147,10 @@ do_rollback() {
       || ql_die "restoring the config dir failed (see above); the legacy container was not started"
   fi
 
-  # 3. the legacy container and its units come back
-  if [[ -n $renamed ]] && ha_container_exists "$renamed"; then
-    podman rename "$renamed" "$cname" || ql_die "podman rename $renamed $cname failed"
-    ql_info "renamed $renamed back to $cname"
+  # 3. the legacy container and its units come back: renamed back, or recreated from the
+  #    capture the migration took - whichever shape this host needed
+  if [[ -n $renamed ]] || [[ -f $B/legacy-container/$cname/meta ]]; then
+    ha_legacy_restore "$(ha_kv_get "$rec" TS || true)" "$B" "$cname"
   fi
   for u in $enabled; do
     systemctl --user enable "$u" >/dev/null 2>&1 || ql_warn "could not enable $u"
@@ -199,6 +212,12 @@ for u in "${units[@]}"; do
   if systemctl --user is-active --quiet "$u" 2>/dev/null; then units_active+=("$u"); fi
 done
 ql_info "legacy container $name ($( ((was_running)) && echo running || echo stopped)); units: ${units[*]:-none} (enabled: ${units_enabled[*]:-none}, active: ${units_active[*]:-none})"
+# How $name is kept for a rollback: renamed and left stopped, or captured and removed. Asked
+# of this host, never of its name (STANDARD 7a, quadlet-lib >= 1.4.0).
+STRATEGY=$(ql_rollback_strategy "$name")
+if [[ $STRATEGY == rename ]] && ha_container_exists "$name-legacy-$(ha_ts)"; then
+  ql_warn "a container named $name-legacy-$(ha_ts) already exists"
+fi
 
 # ================================================================================================
 # 2. derive the settings
@@ -315,6 +334,12 @@ if [[ $legacy_ver != "$pin_ver" ]]; then
   ql_die "the legacy container runs HA $legacy_ver and this checkout pins $pin_ver. Migrate at the same version (check out the tag that pins $legacy_ver, or upgrade the legacy container first), then use scripts/upgrade.sh"
 fi
 ql_info "version gate: legacy HA $legacy_ver = pinned $pin_ver"
+# On the capture path the rollback is a replay of the recorded create command, so a container
+# that has none (created through the podman API rather than the CLI) cannot be rolled back.
+# Say so now, while Home Assistant still runs, not after the stop.
+if [[ $STRATEGY == capture && -z ${D[CREATE_COMMAND]} ]]; then
+  ql_die "$name has an empty CreateCommand: it was created through the podman API, not the CLI, so it cannot be replayed. This host needs the capture path (podman-restart.service is enabled and $name has restart-policy=always), so there would be no way back. Disable podman-restart.service to migrate with the rename path instead"
+fi
 
 # the settings file: the current one (or the example) with the derived values
 base_env=$HA_ENV_FILE
@@ -386,7 +411,9 @@ if ((dry)); then
 migrate-legacy: dry run complete; nothing was changed. A real run would:
     - stop ${units_active[*]:-the container} and then $name (podman stop -t 300)
     - cold-back up $(ha_config_dir) into $(ha_backup_root)/ha-pre-quadlet-<ts>/backup
-    - disable ${units_enabled[*]:-no unit} (files kept) and rename $name to $name-legacy-<ts>
+    - disable ${units_enabled[*]:-no unit} (files kept) and $( [[ $STRATEGY == capture ]] \
+        && printf 'capture %s (with --commit, so its writable layer survives) into the backup and remove it' "$name" \
+        || printf 'rename %s to %s-legacy-<ts>' "$name" "$name" )
     - write $HA_ENV_FILE and run scripts/install.sh
     - compare with the pre-flight snapshot${public:+ (and $public)}; roll back on a critical failure
 EOF
@@ -411,6 +438,7 @@ done
 {
   printf 'TS=%s\n' "$ts"
   printf 'CONTAINER=%s\n' "$name"
+  printf 'STRATEGY=%s\n' "$STRATEGY"
   printf 'RENAMED=\n'
   printf 'UNITS=%s\n' "${units[*]}"
   printf 'UNITS_ENABLED=%s\n' "${units_enabled[*]}"
@@ -487,15 +515,25 @@ for u in "${units_enabled[@]}"; do
   systemctl --user disable "$u" >/dev/null 2>&1 || ql_warn "could not disable $u"
   ql_info "disabled $u (the file stays in $HA_SD_USER_DIR)"
 done
-renamed=$name-legacy-$ts
-if ! podman rename "$name" "$renamed"; then
-  for u in "${units_enabled[@]}"; do systemctl --user enable "$u" >/dev/null 2>&1 || true; done
-  restart_legacy
-  ql_die "podman rename failed; the legacy deployment runs again"
+# ha_legacy_retire ends the script on failure, so it runs in a subshell whose exit status
+# this can act on: the legacy deployment has to come back before we give up. It changes only
+# container state, which a subshell does not hide.
+renamed=''
+if [[ $STRATEGY == capture ]]; then
+  if ! ( ha_legacy_capture "$B" "$name" && ha_legacy_retire capture "$ts" "$B" "$name" ); then
+    for u in "${units_enabled[@]}"; do systemctl --user enable "$u" >/dev/null 2>&1 || true; done
+    restart_legacy
+    ql_die "capturing and removing $name failed; the legacy deployment runs again"
+  fi
+else
+  if ! renamed=$( ha_legacy_retire rename "$ts" "$B" "$name" ); then
+    for u in "${units_enabled[@]}"; do systemctl --user enable "$u" >/dev/null 2>&1 || true; done
+    restart_legacy
+    ql_die "podman rename failed; the legacy deployment runs again"
+  fi
 fi
 ql_env_set "$REC" RENAMED "$renamed"
-ql_env_set "$REC" STATUS renamed
-ql_info "renamed $name to $renamed (stopped, kept for rollback)"
+ql_env_set "$REC" STATUS retired
 
 # ---- 7. settings file and install -------------------------------------------------------------
 if [[ -f $HA_ENV_FILE ]] && ! cmp -s -- "$HA_ENV_FILE" "$B/derived.env"; then
@@ -519,7 +557,7 @@ if ((rc == 0)); then ql_env_set "$REC" STATUS 'done'; else ql_env_set "$REC" STA
 cat <<EOF
 
 Migration $ts done$( ((rc == 2)) && printf ' with degraded checks (see above)').
-  legacy container:  $renamed (stopped, kept for rollback)
+  legacy container:  ${renamed:-captured into $B/legacy-container/$name and removed (podman-restart.service is enabled here, so a renamed copy would have revived at boot)}
   legacy units:      ${units_enabled[*]:-none} disabled; files kept in $HA_SD_USER_DIR
   backup + snapshot: $B
   soak check:        $REPO/tests/smoke.sh --compare $B/preflight.json${public:+ --public-url $public}

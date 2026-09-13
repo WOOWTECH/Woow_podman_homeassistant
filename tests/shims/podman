@@ -62,6 +62,42 @@ def config_src(c):
     return ""
 
 
+# The one pipe-separated template ql_capture_container uses to read a container's facts.
+CAPTURE_FIELDS_FMT = (
+    '{{.Id}}|{{.Image}}|{{.ImageName}}|{{.HostConfig.RestartPolicy.Name}}'
+    '|{{.HostConfig.RestartPolicy.MaximumRetryCount}}|{{.Pod}}|{{.HostConfig.AutoRemove}}'
+    '|{{.HostConfig.NetworkMode}}|{{index .Config.Labels "PODMAN_SYSTEMD_UNIT"}}'
+    '|{{index .Config.Labels "io.podman.compose.project"}}'
+    '|{{index .Config.Labels "com.docker.compose.service"}}'
+)
+
+
+def restart_policy(c):
+    """(name, MaximumRetryCount) as podman reports them; an unset policy is the empty name."""
+    rp = (c.get("HostConfig") or {}).get("RestartPolicy") or {}
+    return rp.get("Name", ""), str(rp.get("MaximumRetryCount", 0))
+
+
+def networks(c):
+    return ((c.get("NetworkSettings") or {}).get("Networks") or {})
+
+
+def label(c, key):
+    """podman prints <no value> for a label that is not there."""
+    return c["Config"].get("Labels", {}).get(key, "<no value>")
+
+
+def capture_fields(c):
+    pol, retries = restart_policy(c)
+    hc = c.get("HostConfig") or {}
+    return "|".join([
+        c.get("Id", ""), c.get("Image", ""), c.get("ImageName", ""), pol, retries,
+        c.get("Pod", ""), str(hc.get("AutoRemove", False)).lower(), hc.get("NetworkMode", ""),
+        label(c, "PODMAN_SYSTEMD_UNIT"), label(c, "io.podman.compose.project"),
+        label(c, "com.docker.compose.service"),
+    ])
+
+
 def fmt_container(f, c):
     health = (c.get("State", {}).get("Health") or {}).get("Status", "")
     table = {
@@ -78,6 +114,28 @@ def fmt_container(f, c):
                                         c.get("ImageName", ""), c["Config"].get("StopTimeout", ""), health),
         "{{range .Mounts}}{{$.Name}}|{{.Source}}{{println}}{{end}}":
             lambda: "".join("%s|%s\n" % (c.get("Name", ""), m.get("Source", "")) for m in c.get("Mounts", [])),
+        # --- what quadlet-lib's capture / recreate helpers read ---------------------------
+        "{{.HostConfig.RestartPolicy.Name}}": lambda: restart_policy(c)[0],
+        "{{.Config.Image}}": lambda: c["Config"].get("Image", c.get("ImageName", "")),
+        "{{.SizeRw}}": lambda: str(c.get("SizeRw", 0)),
+        CAPTURE_FIELDS_FMT: lambda: capture_fields(c),
+        '{{range .Config.CreateCommand}}{{printf "%s\\x00" .}}{{end}}':
+            lambda: "".join(a + "\0" for a in c["Config"].get("CreateCommand", [])),
+        "{{range .Mounts}}{{.Type}}|{{.Name}}|{{.Source}}|{{.Destination}}|{{.RW}}|{{.Propagation}}{{println}}{{end}}":
+            lambda: "".join("%s|%s|%s|%s|%s|%s\n" % (m.get("Type", ""), m.get("Name", ""), m.get("Source", ""),
+                                                     m.get("Destination", ""), str(m.get("RW", True)).lower(),
+                                                     m.get("Propagation", "rprivate")) for m in c.get("Mounts", [])),
+        "{{range $n, $v := .NetworkSettings.Networks}}{{$n}}|{{range $v.Aliases}}{{.}} {{end}}|{{$v.IPAddress}}|{{$v.MacAddress}}{{println}}{{end}}":
+            lambda: "".join("%s|%s|%s|%s\n" % (n, "".join(a + " " for a in v.get("Aliases", [])),
+                                               v.get("IPAddress", ""), v.get("MacAddress", ""))
+                            for n, v in sorted(networks(c).items())),
+        "{{range $n, $v := .NetworkSettings.Networks}}{{$n}}{{println}}{{end}}":
+            lambda: "".join(n + "\n" for n in sorted(networks(c))),
+        "{{range $p, $b := .NetworkSettings.Ports}}{{$p}}|{{range $b}}{{.HostIP}}:{{.HostPort}} {{end}}{{println}}{{end}}":
+            lambda: "".join("%s|%s\n" % (p, "".join("%s:%s " % (b.get("HostIP", ""), b.get("HostPort", "")) for b in bs))
+                            for p, bs in sorted((c.get("NetworkSettings") or {}).get("Ports", {}).items())),
+        "{{range $k, $v := .Config.Labels}}{{$k}}={{$v}}{{println}}{{end}}":
+            lambda: "".join("%s=%s\n" % (k, v) for k, v in sorted(c["Config"].get("Labels", {}).items())),
     }
     if f not in table:
         sys.exit("shim podman: unhandled container --format %r (add it to tests/shims/podman)" % f)
@@ -99,7 +157,7 @@ def take_format(args):
 
 def do_inspect(args):
     fmt, rest = take_format(args)
-    rest = [a for a in rest if a not in ("--type", "container")]
+    rest = [a for a in rest if a not in ("--type", "container", "--size")]
     objs = []
     for name in rest:
         c = ctr(name)
@@ -280,6 +338,93 @@ def do_exec(args):
     return 0
 
 
+# flags of `podman create` that take a separate value; anything else starting with "-" is a
+# switch, and the first bare token after the options is the image, as in real podman.
+CREATE_VALUE_FLAGS = {
+    "--name", "--restart", "-v", "--volume", "--net", "--network", "--label", "-l", "-e",
+    "--env", "-p", "--publish", "--device", "--cidfile", "--detach-keys", "--healthcheck-command",
+}
+
+
+def do_create(args):
+    rc = int(os.environ.get("SHIM_CREATE_RC", "0"))
+    if rc:
+        print("Error: shim create refused", file=sys.stderr)
+        return rc
+    name, policy, retries, image = "", "", 0, ""
+    mounts, nets, labels, devices, privileged = [], [], {}, [], False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a.startswith("--") and "=" in a:
+            k, v = a.split("=", 1)
+        elif a in CREATE_VALUE_FLAGS and i + 1 < len(args):
+            k, v = a, args[i + 1]
+            i += 1
+        elif a.startswith("-"):
+            k, v = a, ""
+        else:
+            image = a
+            break
+        if k in ("--name",):
+            name = v
+        elif k in ("--restart",):
+            policy = v.split(":")[0]
+            retries = int(v.split(":")[1]) if ":" in v else 0
+        elif k in ("-v", "--volume"):
+            parts = v.split(":")
+            src, dst = parts[0], (parts[1] if len(parts) > 1 else parts[0])
+            mounts.append({"Type": "bind" if src.startswith("/") else "volume",
+                           "Name": "" if src.startswith("/") else src,
+                           "Source": src if src.startswith("/") else "/vol/" + src,
+                           "Destination": dst, "RW": True, "Propagation": "rprivate"})
+        elif k in ("--net", "--network"):
+            nets.append(v)
+        elif k in ("--label", "-l"):
+            kk, _, vv = v.partition("=")
+            labels[kk] = vv
+        elif k in ("--device",):
+            devices.append(v)
+        elif k == "--privileged":
+            privileged = True
+        i += 1
+    if not name:
+        print("Error: shim create needs --name", file=sys.stderr)
+        return 125
+    if ctr(name) is not None:
+        print("Error: container name %s is already in use" % name, file=sys.stderr)
+        return 125
+    netmode = nets[0] if nets else "bridge"
+    img = read_json(path("images", imgkey(image) + ".json")) or {}
+    obj = {
+        "Name": name,
+        "Id": "shimid-" + name,
+        "Image": img.get("id", "sha256:" + imgkey(image)),
+        "ImageName": image,
+        "State": {"Running": False, "Status": "created", "StartedAt": "", "Health": None},
+        "Config": {"Labels": labels, "CreateCommand": ["podman", "create"] + args,
+                   "Env": [], "StopTimeout": 10, "Timezone": "", "Healthcheck": None,
+                   "Image": image},
+        "HostConfig": {"NetworkMode": netmode, "Privileged": privileged, "Devices": [],
+                       "AutoRemove": False,
+                       "RestartPolicy": {"Name": policy, "MaximumRetryCount": retries}},
+        "NetworkSettings": {"Networks": {n: {"Aliases": [], "IPAddress": "", "MacAddress": ""}
+                                         for n in nets if n not in ("host", "none")},
+                            "Ports": {}},
+        "Mounts": mounts,
+        "SizeRw": 0,
+    }
+    os.makedirs(path("containers", name), exist_ok=True)
+    save_ctr(name, obj)
+    with open(path("containers", name, "devices"), "w", encoding="utf-8") as f:
+        for spec in devices:
+            parts = spec.split(":")
+            f.write((parts[1] if len(parts) > 1 else parts[0]) + "\n")
+    open(path("containers", name, "ports"), "w", encoding="utf-8").close()
+    print("shimid-" + name)
+    return 0
+
+
 def main():
     if not ARGS:
         return 0
@@ -322,6 +467,23 @@ def main():
             save_ctr(n, c)
         shimlib.sync_ports()
         return 0
+    if cmd == "commit":
+        rc = int(os.environ.get("SHIM_COMMIT_RC", "0"))
+        if rc:
+            print("Error: shim commit refused", file=sys.stderr)
+            return rc
+        plain = [a for a in rest if not a.startswith("-")]
+        src, ref = plain[0], plain[1]
+        if ctr(src) is None:
+            print("Error: no such container %s" % src, file=sys.stderr)
+            return 125
+        os.makedirs(path("images"), exist_ok=True)
+        with open(path("images", imgkey(ref) + ".json"), "w", encoding="utf-8") as f:
+            json.dump({"ref": ref, "id": "sha256:committed-" + src, "labels": {}}, f)
+        print("sha256:committed-" + src)
+        return 0
+    if cmd == "create":
+        return do_create(rest)
     if cmd == "rename":
         old, new = rest[0], rest[1]
         if ctr(old) is None:
