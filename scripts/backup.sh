@@ -41,7 +41,7 @@ while (($#)); do
 done
 
 ql_require_rootless
-ha_lock
+ql_lock "$HA_APP"
 ha_env_require
 cfg=$(ha_config_dir)
 [[ -d $cfg ]] || ql_die "HA_CONFIG_DIR $cfg does not exist"
@@ -80,7 +80,8 @@ finish() {
   fi
   return "$rc"
 }
-trap finish EXIT
+# a hook, not `trap ... EXIT`, which would replace the handler ql_lock armed
+ql_cleanup finish finish
 
 if [[ $mode == cold ]] && ((running)); then
   ((stop)) || ql_die "Home Assistant is running; stop it first (systemctl --user stop $HA_UNIT) or add --stop"

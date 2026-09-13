@@ -25,20 +25,6 @@ export QL_APP=$HA_APP
 
 ha_ts() { date +%Y%m%d-%H%M%S; }
 
-# ha_lock: take the per-app lock, or keep the one a calling script (upgrade.sh, restore.sh,
-# migrate-legacy.sh) already holds. The caller exports HA_LOCK_FD and the fd is inherited;
-# it is honoured only when it really is this app's lock file.
-ha_lock() {
-  local fd=${HA_LOCK_FD:-} want
-  want=$(realpath -m -- "$HA_STATE_DIR/lock")
-  if [[ $fd =~ ^[0-9]+$ && -e /proc/self/fd/$fd && $(readlink -f -- "/proc/self/fd/$fd") == "$want" ]]; then
-    return 0
-  fi
-  ql_lock "$HA_APP"
-  # shellcheck disable=SC2153 # QL_LOCK_FD is set by ql_lock in quadlet-lib.sh
-  export HA_LOCK_FD=$QL_LOCK_FD
-}
-
 # ha_env_require: load the settings file that scripts/install.sh created
 ha_env_require() {
   [[ -f $HA_ENV_FILE ]] || ql_die "$HA_ENV_FILE not found; run scripts/install.sh first"
