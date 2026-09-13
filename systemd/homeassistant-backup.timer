@@ -1,0 +1,11 @@
+# Runs homeassistant-backup.service once a day (optional, HA_BACKUP_TIMER=true).
+[Unit]
+Description=Daily Home Assistant hot backup (WOOWTECH)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

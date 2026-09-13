@@ -1,0 +1,4 @@
+# PostgreSQL data (optional, HA_POSTGRES=true).
+[Volume]
+VolumeName=homeassistant-db-data
+Label=io.woowtech.app=homeassistant

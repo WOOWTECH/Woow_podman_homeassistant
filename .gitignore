@@ -1,33 +1,25 @@
-# ============================================================
-# Git Ignore — Home Assistant Docker Compose
-# ============================================================
-
-# Environment secrets
+# Per-host settings live in ~/.config/homeassistant/, never in the repo.
 .env
+*.env.local
+config/*.env
+!config/*.env.example
 
-# Home Assistant runtime files
-config/.storage/
-config/.cloud/
-config/home-assistant_v2.db
-config/home-assistant_v2.db-shm
-config/home-assistant_v2.db-wal
-config/tts/
-config/deps/
-config/__pycache__/
-config/custom_components/__pycache__/
-config/.HA_VERSION
+# Backups and anything copied out of a config dir
+*.tar
+*.tgz
+*.tar.gz
+*.tar.zst
+*.sql.gz
+secrets.yaml
+.storage/
 
-# Secrets (template is tracked; real file is not)
-config/secrets.yaml
+# Test and tooling leftovers
+__pycache__/
+*.pyc
 
-# PostgreSQL data (managed by Docker volume)
-postgres_data/
-
-# OS files
+# OS / editor files
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/
 *.swp

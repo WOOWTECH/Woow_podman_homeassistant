@@ -1,0 +1,48 @@
+# Optional Matter controller for Home Assistant's Matter integration (ws://localhost:5580/ws).
+# Installed only when HA_MATTER=true (scripts/install.sh --with-matter). See docs/matter.md.
+#
+# matter.js server is the upstream successor of python-matter-server (archived) and speaks
+# the same WebSocket API. Matter needs the host's IPv6 link-local addresses and mDNS, so it
+# uses host networking like HA.
+[Unit]
+Description=Matter server for Home Assistant (matter.js, optional)
+Documentation=https://github.com/matter-js/matterjs-server/blob/main/docs/docker.md
+# Start before HA so the Matter config entry connects on the first try. This is ordering only:
+# HA retries on its own, and a failed Matter server never blocks HA.
+Before=homeassistant.service
+
+[Container]
+ContainerName=homeassistant-matter
+Image=ghcr.io/matter-js/matterjs-server:1.4.0
+Network=host
+Label=io.woowtech.app=homeassistant
+LogDriver=journald
+# The image runs as USER 1000:1000. keep-id maps your user onto container uid 1000, so the
+# volume stays owned by you whatever your host uid is.
+UserNS=keep-id:uid=1000,gid=1000
+Volume=homeassistant-matter-data.volume:/data
+# The WebSocket API and dashboard have no authentication. Only HA on this host needs them.
+@@HA_MATTER_LISTEN_LINE@@
+Environment=LOG_LEVEL=info
+Timezone=local
+NoNewPrivileges=true
+DropCapability=ALL
+# The image's own check; it follows LISTEN_ADDRESS and PORT.
+HealthCmd=/usr/local/bin/healthcheck.sh
+HealthInterval=60s
+HealthTimeout=10s
+HealthRetries=6
+HealthStartPeriod=900s
+PodmanArgs=--stop-timeout=30
+
+[Service]
+# A container stopped by systemd is stopped with SIGTERM: an entrypoint that does not
+# trap it exits 143 (128+15), which would leave the unit failed after a clean stop.
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+TimeoutStartSec=600
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

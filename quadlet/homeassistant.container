@@ -1,0 +1,61 @@
+# Home Assistant Core: rootless, host networking, SQLite recorder in the config dir.
+#
+# scripts/install.sh renders this file from ~/.config/homeassistant/homeassistant.env and
+# installs it to ~/.config/containers/systemd/. Change the env file and re-run install.sh
+# rather than editing the installed copy.
+#
+# Host networking is required: mDNS/SSDP discovery, the HomeKit bridge (TCP 21064 plus its
+# mDNS advertisement), HA-MCP (TCP 9584) and http.trusted_proxies for a same-host Cloudflare
+# tunnel or reverse proxy all expect HA to see the host's interfaces directly.
+[Unit]
+Description=Home Assistant Core (WOOWTECH Quadlet)
+Documentation=https://github.com/WOOWTECH/Woow_podman_homeassistant
+
+[Container]
+ContainerName=homeassistant
+# The repo is the source of truth for the version: bump it here, then run scripts/upgrade.sh.
+Image=ghcr.io/home-assistant/home-assistant:2026.9.1
+Network=host
+Label=io.woowtech.app=homeassistant
+LogDriver=journald
+# HA_CONFIG_DIR. Files stay owned by your user: it is root inside the default rootless
+# user namespace, so no UserNS= here.
+Volume=@@HA_CONFIG_DIR@@:/config:rw
+# Computed by scripts/render-args.sh from HA_PRIVILEGED, the device settings, HA_TZ and
+# HA_BLUETOOTH. Quadlet in podman 4.9.3 ignores .container.d/ drop-ins, so per-host values
+# are rendered into the unit instead.
+@@HA_PRIVILEGE_LINE@@
+@@HA_DEVICE_LINES@@
+@@HA_TZ_LINE@@
+@@HA_DBUS_LINE@@
+# Quadlet 4.9.3 has no StopTimeout= key. The image gives HA 240 s of s6 grace time
+# (S6_SERVICES_GRACETIME=240000); podman's default of 10 s SIGKILLs HA on every stop.
+# Quadlet's ExecStop (podman rm -f) honours this value.
+PodmanArgs=--stop-timeout=300
+# Health only: Notify=healthy is ignored by 4.9.3, so tests/smoke.sh polls for readiness.
+# Five failures 60 s apart, after a 10 minute start period, kill the container and
+# systemd restarts it (Restart=always).
+HealthCmd=curl -fsS -m 10 -o /dev/null http://127.0.0.1:@@HA_PORT@@/manifest.json
+HealthInterval=60s
+HealthTimeout=15s
+HealthRetries=5
+HealthStartPeriod=600s
+HealthOnFailure=kill
+
+[Service]
+# The user manager has no network-online.target and Quadlet 4.9.3 adds no network
+# dependency. Custom-component requirements (ha_mcp_tools installs ha-mcp from PyPI) are
+# pip-installed into the fresh container on every start, so wait for DNS first: at most
+# 120 s, and it never fails the start. $$ is systemd's escape for a literal $.
+ExecStartPre=/bin/sh -c 'i=0; until getent hosts pypi.org >/dev/null 2>&1 || [ $$i -ge 60 ]; do i=$$((i+1)); sleep 2; done'
+# A container stopped by systemd is stopped with SIGTERM: an entrypoint that does not
+# trap it exits 143 (128+15), which would leave the unit failed after a clean stop.
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+# Covers a first-time image pull (about 2.5 GB) inside ExecStart; install.sh pre-pulls.
+TimeoutStartSec=900
+TimeoutStopSec=330
+
+[Install]
+WantedBy=default.target

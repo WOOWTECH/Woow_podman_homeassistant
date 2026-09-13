@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# tests/shims/loginctl: linger state in $SHIM_STATE/linger; SHIM_LINGER_DENY=1 acts like polkit
+# refusing the request.
+set -u
+S=${SHIM_STATE:?SHIM_STATE is not set}
+printf 'loginctl %s\n' "$*" >>"$S/calls"
+case ${1:-} in
+  show-user) cat "$S/linger" 2>/dev/null || echo no ;;
+  enable-linger)
+    if [[ ${SHIM_LINGER_DENY:-0} == 1 ]]; then
+      echo "Could not enable linger: Access denied" >&2
+      exit 1
+    fi
+    echo yes >"$S/linger" ;;
+esac
+exit 0
