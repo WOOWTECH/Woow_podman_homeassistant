@@ -222,7 +222,7 @@ run() {
     export HOME=$T/home SHIM_STATE=$T/state XDG_RUNTIME_DIR=$T/run TMPDIR=$T/tmp
     export PATH="$SHIMS:$PATH" QL_LINGER_DIR=$T/linger QL_SHADOW_DIRS=$T/etc-user
     export QL_POLL_INTERVAL=0.05 HA_SMOKE_MDNS='' HA_SMOKE_POLL=1
-    unset XDG_CONFIG_HOME XDG_STATE_HOME QL_APP QL_DRY_RUN HA_LOCK_FD HA_SMOKE_CMD HA_ENV_FILE QL_QUADLET_DIR
+    unset XDG_CONFIG_HOME XDG_STATE_HOME QL_APP QL_DRY_RUN HA_SMOKE_CMD HA_ENV_FILE QL_QUADLET_DIR
     : >"$SHIM_STATE/calls"
     echo yes >"$SHIM_STATE/linger"
     [[ $(command -v podman) == "$SHIMS/podman" && $(command -v systemctl) == "$SHIMS/systemctl" ]] \

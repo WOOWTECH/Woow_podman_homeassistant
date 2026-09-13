@@ -53,7 +53,7 @@ while (($#)); do
 done
 
 ql_preflight "$PODMAN_MIN"
-ha_lock
+ql_lock "$HA_APP"
 ha_env_require
 root=$(ha_backup_root)
 port=$(ql_env_get HA_PORT 8123)

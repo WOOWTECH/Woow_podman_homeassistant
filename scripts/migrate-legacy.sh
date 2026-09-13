@@ -88,7 +88,7 @@ done
 
 ql_preflight "$PODMAN_MIN"
 command -v python3 >/dev/null 2>&1 || ql_die "python3 is required (sudo apt-get install python3)"
-ha_lock
+ql_lock "$HA_APP"
 MIG_STATE=$HA_STATE_DIR/migrations
 
 # ================================================================================================
@@ -223,7 +223,7 @@ fi
 # 2. derive the settings
 # ================================================================================================
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/ha-migrate.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+ql_cleanup work rm -rf "$WORK"
 podman container inspect "$name" >"$WORK/inspect.json" || ql_die "podman inspect $name failed"
 python3 - "$WORK/inspect.json" "$HOME" >"$WORK/derived.kv" <<'PY'
 import json, sys

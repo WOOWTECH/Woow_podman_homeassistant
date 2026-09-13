@@ -48,7 +48,7 @@ bdir=$(realpath -e -- "$bdir") || ql_die "backup directory not found"
   || ql_die "$bdir is not a backup made by scripts/backup.sh (manifest.env, config.tgz, SHA256SUMS)"
 
 ql_require_rootless
-ha_lock
+ql_lock "$HA_APP"
 ha_env_require
 cfg=$(ha_config_dir)
 ts=$(ha_ts)
@@ -82,7 +82,7 @@ ha_confirm "Restore $bdir into $cfg? Home Assistant is stopped and the current c
 # ---- images first, while HA still runs -------------------------------------------------------
 if ((with_unit)); then
   stage=$(mktemp -d "${TMPDIR:-/tmp}/ha-restore-units.XXXXXX")
-  trap 'rm -rf "$stage"' EXIT
+  ql_cleanup stage rm -rf "$stage"
   cp -p -- "$bdir"/units/* "$stage/"
   ql_pull_images "$stage"
 fi

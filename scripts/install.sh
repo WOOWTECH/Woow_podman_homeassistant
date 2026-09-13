@@ -59,8 +59,7 @@ dry=${QL_DRY_RUN:-0}
 # ---- 1. host preflight ----------------------------------------------------------------------
 ql_preflight "$PODMAN_MIN"
 ql_enable_linger
-ha_lock
-
+ql_lock "$HA_APP"
 # ---- 2. per-host settings --------------------------------------------------------------------
 ql_env_ensure "$REPO/config/$HA_APP.env.example" "$HA_ENV_FILE"
 envf=$HA_ENV_FILE
@@ -147,7 +146,7 @@ fi
 
 # ---- 5. stage the selected units, render, validate --------------------------------------------
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/$HA_APP-install.XXXXXX")
-trap 'rm -rf "$WORK"' EXIT
+ql_cleanup work rm -rf "$WORK"
 mkdir -p "$WORK/src" "$WORK/out"
 opt=$REPO/quadlet/optional
 cp -p "$REPO/quadlet/homeassistant.container" "$WORK/src/"

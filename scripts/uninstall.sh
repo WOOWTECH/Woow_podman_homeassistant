@@ -39,7 +39,7 @@ done
 dry=${QL_DRY_RUN:-0}
 
 ql_require_rootless
-ha_lock
+ql_lock "$HA_APP"
 if [[ -f $HA_ENV_FILE ]]; then ql_env_load "$HA_ENV_FILE"; fi
 
 if ((!purge)); then
