@@ -11,11 +11,12 @@
 | [Mushroom](https://github.com/piitaya/lovelace-mushroom/releases/tag/v5.2.3) | `v5.2.3` + SHA‑256 | H618 清單的 Lovelace Mushroom 卡片資源 |
 
 精確映像 digest 與 revision 記在 [`image/sources.lock.json`](../image/sources.lock.json)。
-`ha-rebrand` 的完整品牌 Core／前端管線仍以 **2026.7.2** 建置；這個
-2026.9.1 預裝映像保留官方 Core 與前端程式，另帶入已列明的套件資源、
-WoowTech 圖示與登入前的標題／載入圖。舊品牌管線的 `const.py` 會把版本
-改回 2026.7.2 並移除 2026.9.1 的常數，不能直接覆蓋。完整前端語系、
-設定頁與 backend 字串的品牌改寫仍需針對 2026.9.1 移植。
+`ha-rebrand` 的原始全量 Core／前端管線仍以 **2026.7.2** 建置。Podman
+`2026.9.1-r7` 沿用官方 2026.9.1 的執行程式與整合，從固定的私有來源
+取得品牌語系規則與色票，針對 2026.9.1 的 Core 顯示名稱、PWA manifest、
+已編譯前端、前後端翻譯、後端顯示字串與圖示做品牌移植。它不覆蓋舊版 `const.py`，
+故 Core 版本與資料庫結構仍是 2026.9.1。第三方供應商名稱、套件識別字
+與文件網址保留原樣。
 
 ## 預裝內容
 
@@ -28,7 +29,7 @@ WoowTech 圖示與登入前的標題／載入圖。舊品牌管線的 `const.py`
 | 主題 | 14 | `themes/*.yaml`；新實例的 `frontend.themes` 載入全部主題 |
 | 藍圖 | 22 | 18 個 WOOWTECH automation、2 個第三方 automation、2 個 WOOWTECH script；官方內建另有 3 個，因此出貨清單合計 25 個 |
 | 靜態資源 | 15 檔 | `www/` 的背景圖、`config-editor-fullpage.js`、Mushroom `mushroom.js`；全新實例在 HA 首次啟動前以獨立 UUID 註冊兩個 JS module |
-| 品牌圖示 | 23 檔 | 私有 rebrand 的 WoowTech favicon、maskable icon 等；保留官方 2026.9.1 JS，修補三個 HTML 標題與載入圖 |
+| 品牌圖示與頁面 | 23 個圖示加 1 個徽章 | 私有 rebrand 的 WoowTech 資源；2026.9.1 前端顯示字串、色票與隨映像提供的語系翻譯另於建置時改寫 |
 | Python 依賴 | 依 manifest | Custom component 的 `requirements` 在建置時安裝並通過 `pip check` |
 | HA‑MCP 7.14.2 | 獨立 venv | `/opt/woow/ha-mcp`；避免它要求的 `rich`／`websockets` 版本破壞官方 Core 整合 |
 
@@ -49,7 +50,7 @@ Recorder 資料庫及 `.storage` 的機器身分資料都由實際實例建立�
 gh repo clone WOOWTECH/ha-rebrand ~/ha-rebrand
 git -C ~/ha-rebrand checkout --detach 5c2e82e6a65c7eafa4958e95b9612c825ea15de9
 python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
-# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r3
+# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r7
 ```
 
 建置腳本要求來源 revision 完全符合 lock，另外下載兩個發布檔並檢查 SHA‑256；
@@ -69,6 +70,32 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
 
 ## 驗證與限制
 
+- 2026-11-10 `r7` 修正 `cover_rf_time_based` 在 HA 2026.9 註冊
+  `set_known_position`／`set_known_action` 時被拒絕的 entity-service schema。
+  隔離實例完成開／關、動作與位置 37 的校準；正式服務以 28 MB 冷備份
+  從 `r6` 升至 `r7`，23 項 smoke check 全過。HA、MCP、Matter 容器
+  healthcheck 皆 healthy；詳細驗證見
+  [`custom-components-validation-2026-11-10.md`](custom-components-validation-2026-11-10.md)。
+- 2026-11-10 `r6` 修正 `woow_ha_remote_ha_control` 在 HA 重啟後搶先載入代理服務時，
+  `service_description_cache` 尚未建立造成 `KeyError` 的問題；快取鍵同步改為
+  HA 2026.9 使用的 `(domain, service)`。詳細實測見
+  [`custom-components-validation-2026-11-10.md`](custom-components-validation-2026-11-10.md)。
+- 2026-11-10 `r5` 加入舊品牌管線的後端顯示字串修補；隔離實例
+  `18123` 啟動並回 200，系統資訊的安裝類型已是 `woowtech Container`。
+  正式服務以 26 MB 冷備份從 `r4` 切到 `r5`，從另一台區網主機存取
+  `8123` 回 200；HA、MCP、Matter 健康檢查全過。授權 API 回報 Core
+  `2026.9.1`、161 個已載入元件與 Matter 已載入。升級 smoke 比對為
+  22 項通過、0 項關鍵失敗、1 項降級失敗：WLED 取資料時回報
+  `invalid_response_github_error`；`r4`／`r5` 的 WLED 程式檔雜湊相同。
+  smoke 的 API 項目因未設定獨立測試 header 而跳過，另已用 MCP 所持
+  授權在實際 API 驗證。
+- 2026-11-10 `r4` 的隔離實例從 HTTP 回傳 `woowtech` PWA 名稱與
+  `#6183fc` 主色；繁中應用程式頁面說明符合 Podman 架構，已編譯入口 JS
+  與 onboarding HTML 不含原版產品名稱。正式服務以冷備份與自動回滾流程
+  從 `r3` 切到 `r4`；切換後 23 項 smoke check 與 29 項部署腳本測試通過。
+  HA API 回報 Core `2026.9.1`、161 個已載入元件；從另一台
+  `192.168.2.121` 區網主機存取 `192.168.2.46:8123/manifest.json`
+  回 200。已登入瀏覽器畫面的品牌驗收仍需在瀏覽器強制重新載入後確認。
 - 2026.9.1 `r3` 本機映像在全新隔離設定目錄通過 `homeassistant --script
   check_config`；`/manifest.json`、favicon、Config Editor JS 與 Mushroom JS
   回 200，未登入 `/api/` 回 401；啟動日誌掃到 22 個 custom components。
@@ -96,5 +123,7 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
 - 這台主機有藍牙介面，但 rootless 測試容器沒有管理它的 `NET_ADMIN`／
   `NET_RAW` 權限，因此 HA 自動發現藍牙後會記錄權限錯誤。藍牙硬體能力
   仍須另做有權限的主機驗收；不以網頁 200 視作藍牙通過。
-- rebrand 的完整登入畫面、圖示與 63 語系前端仍以 2026.7.2 為基準；
-  2026.9.1 的完整品牌改寫與端到端驗收尚未完成。
+- `2026.9.1-r7` 的品牌層以已編譯的官方前端為基礎，未直接使用
+  `ha-rebrand` 2026.7.2 的完整前端程式；更新上游版本時須重新執行
+  品牌建置與已登入瀏覽器驗收。瀏覽器可能快取同名 JS 檔，升版後請強制
+  重新載入一次。

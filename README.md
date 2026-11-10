@@ -10,7 +10,8 @@ hand-made deployment can be adopted in place.
 - Host networking, so mDNS/SSDP discovery, the HomeKit bridge and a same-host reverse proxy work
 - SQLite recorder in the config dir by default; PostgreSQL and a Matter server are optional
 - The image version is pinned in this repo and is the source of truth
-- The local image preinstalls the WOOWTECH integrations, themes, blueprints and web assets;
+- The local image brands HA Core 2026.9.1 and preinstalls the WOOWTECH integrations,
+  themes, blueprints and web assets;
   see [source parity and build details](docs/preinstalled-ha.md)
 - Per-host settings live in `~/.config/homeassistant/homeassistant.env` (mode 0600), never in git
 
@@ -28,8 +29,8 @@ hand-made deployment can be adopted in place.
 | **Podman + systemd** (this repo) | [Woow_podman_homeassistant](https://github.com/WOOWTECH/Woow_podman_homeassistant) | Quadlet units |
 | **K3s / Kubernetes** | [Woow_k3s_homeassistant](https://github.com/WOOWTECH/Woow_k3s_homeassistant) | Helm chart |
 
-Home Assistant is itself the smart-home operating system, so there is no Home Assistant add-on
-variant of this stack.
+This Podman edition runs Core without HAOS or Supervisor. It has no HA app store;
+services that would be add-ons are deployed as separate Podman packages.
 
 ---
 
