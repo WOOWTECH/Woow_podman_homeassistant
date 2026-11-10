@@ -1,0 +1,100 @@
+# Podman HA 預裝層與來源對齊
+
+## 版本基準
+
+| 來源 | 固定 revision | 在 Podman 的用途 |
+|---|---|---|
+| [Woow_haos_ha_core](https://github.com/WOOWTECH/Woow_haos_ha_core) | `0db2b04cac91632aa34a22f9610197ee7e22546f` | 官方 HA Core 2026.9.1 基準映像；該 repo 本身沒有整合、主題或設定 seed |
+| [ha-rebrand](https://github.com/WOOWTECH/ha-rebrand)（私有） | `5c2e82e6a65c7eafa4958e95b9612c825ea15de9` | 已驗證的共用 seed 與 HA‑MCP 修補來源 |
+| [Woow_ha_version_control](https://github.com/WOOWTECH/Woow_ha_version_control)（私有） | `176bfa0fa8359610d3667c85cb778e70f10e5e9f` | 非 add-on 的出貨清單與邊界核對 |
+| [Woow_podman_auth_gateway](https://github.com/WOOWTECH/Woow_podman_auth_gateway/releases/tag/2.0.0-r1) | `2.0.0-r1` + SHA‑256 | H618 清單另列的 `woow_protected_apps` 整合 |
+| [Mushroom](https://github.com/piitaya/lovelace-mushroom/releases/tag/v5.2.3) | `v5.2.3` + SHA‑256 | H618 清單的 Lovelace Mushroom 卡片資源 |
+
+精確映像 digest 與 revision 記在 [`image/sources.lock.json`](../image/sources.lock.json)。
+`ha-rebrand` 的完整品牌 Core／前端管線仍以 **2026.7.2** 建置；這個
+2026.9.1 預裝映像保留官方 Core 與前端程式，另帶入已列明的套件資源、
+WoowTech 圖示與登入前的標題／載入圖。舊品牌管線的 `const.py` 會把版本
+改回 2026.7.2 並移除 2026.9.1 的常數，不能直接覆蓋。完整前端語系、
+設定頁與 backend 字串的品牌改寫仍需針對 2026.9.1 移植。
+
+## 預裝內容
+
+`scripts/build-preinstalled.py` 從固定的私有來源產生本機 OCI 映像，公開 Git
+倉庫不保存私有原始碼或執行資料。它將下列檔案封裝到映像 `/config`：
+
+| 類別 | 數量 | 來源與行為 |
+|---|---:|---|
+| Custom components | 22 | `pipelines/shared/armbian-seed` 的 20 個出貨整合，加 Cloud 管線的 `browser_mod` 和 H618 的 `woow_protected_apps`；除 `config_editor` 外預設不建立整合項目 |
+| 主題 | 14 | `themes/*.yaml`；新實例的 `frontend.themes` 載入全部主題 |
+| 藍圖 | 22 | 18 個 WOOWTECH automation、2 個第三方 automation、2 個 WOOWTECH script；官方內建另有 3 個，因此出貨清單合計 25 個 |
+| 靜態資源 | 15 檔 | `www/` 的背景圖、`config-editor-fullpage.js`、Mushroom `mushroom.js`；全新實例在 HA 首次啟動前以獨立 UUID 註冊兩個 JS module |
+| 品牌圖示 | 23 檔 | 私有 rebrand 的 WoowTech favicon、maskable icon 等；保留官方 2026.9.1 JS，修補三個 HTML 標題與載入圖 |
+| Python 依賴 | 依 manifest | Custom component 的 `requirements` 在建置時安裝並通過 `pip check` |
+| HA‑MCP 7.14.2 | 獨立 venv | `/opt/woow/ha-mcp`；避免它要求的 `rich`／`websockets` 版本破壞官方 Core 整合 |
+
+HAOS／Supervisor add-on 不在此映像。`woow_protected_apps` 原始碼已預裝，但要有
+對應 auth gateway 設定才會啟用保護面板。HA‑MCP 改用
+可選的 `homeassistant-mcp.container` 執行，並依 HA 已啟用的整合隱藏
+Supervisor、HACS、Assist、radio 等不可用工具。`ha_mcp_tools` 的 UI 僅提供
+File/YAML Tools 設定入口；內嵌 server 選項在 Podman 映像中隱藏，以免它把
+HA‑MCP 的相衝套件裝入 Core 的 Python 環境。
+
+HA 管理員、HACS GitHub 授權、HA‑MCP token、Matter fabric、設備配對、
+Recorder 資料庫及 `.storage` 的機器身分資料都由實際實例建立，不複製進映像。
+這符合 version control 的無帳號出貨規格；新實例應由使用者完成 onboarding。
+
+## 建置與安裝
+
+```bash
+gh repo clone WOOWTECH/ha-rebrand ~/ha-rebrand
+git -C ~/ha-rebrand checkout --detach 5c2e82e6a65c7eafa4958e95b9612c825ea15de9
+python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
+# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r3
+```
+
+建置腳本要求來源 revision 完全符合 lock，另外下載兩個發布檔並檢查 SHA‑256；
+也可提供 `--assets-dir` 使用已下載的檔案。它檢查 22 整合／14 主題／22
+預裝藍圖、路徑衛生與來源檔案，最後讓兩套 Python 環境各自通過 `pip check`。
+`scripts/install.sh` 只在映像帶 `io.woowtech.preinstall=1` 標籤時抽取
+`/config`，逐檔寫入主機設定目錄；既有本機 YAML 保留，已由本工具安裝且
+未被修改的套件檔案可在升版時更新。若套件檔案被本機修改，整次預裝同步
+會停止，並列出衝突檔案。全新設定目錄還會建立無帳號資料的
+`.storage/lovelace_resources`，註冊兩個 JS module；既有 `.storage` 一律保留，
+需由管理員在「設定 → 儀表板 → 資源」加入缺少的資源。
+
+要啟用 HA‑MCP，先完成 HA onboarding，再將有效的 HA access token 寫成
+`homeassistant-mcp-token` Podman secret，然後執行 `scripts/install.sh --with-mcp`。
+服務只在本機 `127.0.0.1:9584` 監聽；設定檔不保存 token。需供遠端 MCP
+客戶端使用時，另以具身份驗證的代理或通道公開。
+
+## 驗證與限制
+
+- 2026.9.1 `r3` 本機映像在全新隔離設定目錄通過 `homeassistant --script
+  check_config`；`/manifest.json`、favicon、Config Editor JS 與 Mushroom JS
+  回 200，未登入 `/api/` 回 401；啟動日誌掃到 22 個 custom components。
+- 測試帳號完成隔離實例的 onboarding 後，WebSocket 的 `lovelace/resources`
+  回報兩個已註冊的 JS module；登入與載入畫面的 WoowTech 標題、圖示也已
+  從映像與 HTTP 回應核對。
+- HA WebSocket 的 `frontend/get_themes` 回傳 57 個可選名稱，來自 14 個
+  預裝主題 YAML；新實例的 `.storage/lovelace_resources` 格式與 API 結果一致。
+- 在獨立實例完成測試用 onboarding 後，HA‑MCP HTTP 列出 74 個工具，
+  Supervisor 與尚未啟用 HACS 的工具已隱藏；`ha_get_state` 成功讀回
+  `sun.sun` 的真實狀態。
+- 2026-11-10 在 amd64 rootless Podman／Quadlet 以新設定目錄實際安裝：
+  `homeassistant.service`、`homeassistant-mcp.service`、
+  `homeassistant-matter.service` 與每日備份 timer 均 active；smoke test
+  13 項通過、0 項失敗。Matter 伺服器 5580 回 200，HA 的 Matter
+  config entry 狀態為 `loaded`，MCP 因此可列出 74 個工具並成功讀取
+  `sun.sun`。另完成線上設定／SQLite 備份，以及停止 HA／Matter 後的
+  26 MB 冷備份；冷備份內含 Matter 資料卷，全部 SHA‑256 校驗通過，
+  服務重啟後 8123／5580 回 200、Matter entry 與 MCP 工具仍可用；
+  三個容器的 Podman healthcheck 均回 `healthy`。提供暫存 API token
+  後，正式 smoke test 16 項通過、0 項失敗。
+- 實際新實例已建立管理員，但地理位置、analytics 與整合選擇等首次設定
+  步驟仍待使用者完成；HACS GitHub 授權、實體 Matter 配對及藍牙硬體
+  測試也需要實際帳號或裝置。
+- 這台主機有藍牙介面，但 rootless 測試容器沒有管理它的 `NET_ADMIN`／
+  `NET_RAW` 權限，因此 HA 自動發現藍牙後會記錄權限錯誤。藍牙硬體能力
+  仍須另做有權限的主機驗收；不以網頁 200 視作藍牙通過。
+- rebrand 的完整登入畫面、圖示與 63 語系前端仍以 2026.7.2 為基準；
+  2026.9.1 的完整品牌改寫與端到端驗收尚未完成。

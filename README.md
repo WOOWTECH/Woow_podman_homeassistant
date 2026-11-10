@@ -10,6 +10,8 @@ hand-made deployment can be adopted in place.
 - Host networking, so mDNS/SSDP discovery, the HomeKit bridge and a same-host reverse proxy work
 - SQLite recorder in the config dir by default; PostgreSQL and a Matter server are optional
 - The image version is pinned in this repo and is the source of truth
+- The local image preinstalls the WOOWTECH integrations, themes, blueprints and web assets;
+  see [source parity and build details](docs/preinstalled-ha.md)
 - Per-host settings live in `~/.config/homeassistant/homeassistant.env` (mode 0600), never in git
 
 > **Compose users:** this repo was a Docker/Podman Compose stack until v1. The last compose
@@ -70,13 +72,18 @@ rootless and files must stay owned by your user.
 git clone https://github.com/WOOWTECH/Woow_podman_homeassistant.git
 cd Woow_podman_homeassistant
 
+# Build the pinned local image from the private rebrand source first.
+gh repo clone WOOWTECH/ha-rebrand ~/ha-rebrand
+git -C ~/ha-rebrand checkout --detach 5c2e82e6a65c7eafa4958e95b9612c825ea15de9
+python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
+
 # 1. first run: creates ~/.config/homeassistant/homeassistant.env and stops for review
 scripts/install.sh
 
 # 2. edit the settings (at minimum HA_CONFIG_DIR and your Zigbee stick)
 ${EDITOR:-nano} ~/.config/homeassistant/homeassistant.env
 
-# 3. install for real: renders the units, dry-runs them, pulls the image, starts HA
+# 3. install for real: renders the units, verifies the image, seeds /config, starts HA
 scripts/install.sh
 ```
 
@@ -96,6 +103,7 @@ Useful flags (`scripts/install.sh --help` lists them all):
 | `--no-smoke` | skip the checks at the end |
 | `--with-matter` / `--without-matter` | add or remove the optional Matter server |
 | `--with-postgres` / `--without-postgres` | add or remove the optional PostgreSQL recorder |
+| `--with-mcp` / `--without-mcp` | add or remove the optional isolated HA-MCP service; requires a valid HA token secret |
 | `--with-backup-timer` / `--without-backup-timer` | add or remove the daily hot backup timer |
 
 The `--with…` / `--without…` choices are saved in the settings file, so a plain re-run keeps
@@ -110,6 +118,7 @@ them. Deselecting a component stops and removes its units but **keeps its data**
 | `quadlet/homeassistant.container` | `~/.config/containers/systemd/` | `homeassistant.service` |
 | `quadlet/optional/homeassistant-matter.container` + `…-matter-data.volume` | same | `homeassistant-matter.service` |
 | `quadlet/optional/homeassistant-db.container` + `…-db-data.volume` + `homeassistant.network` | same | `homeassistant-db.service` |
+| `quadlet/optional/homeassistant-mcp.container` | same | `homeassistant-mcp.service` |
 | `systemd/homeassistant-backup.{service,timer}` | `~/.config/systemd/user/` | `homeassistant-backup.timer` |
 
 The units are rendered at install time: `@@VAR@@` placeholders are replaced with your values, so
@@ -123,8 +132,8 @@ Home Assistant itself:
 - `--stop-timeout=300`, because the image gives HA 240 s of s6 grace time on shutdown
 - an HTTP health check on `127.0.0.1:<HA_PORT>/manifest.json`; five failures 60 s apart after a
   10 minute start period kill the container and systemd restarts it
-- an `ExecStartPre` that waits up to 120 s for DNS, because custom components that pip-install
-  their requirements on start (such as HA-MCP) need name resolution
+- an `ExecStartPre` that waits up to 120 s for DNS if locally added components need PyPI;
+  dependencies of the shipped components are preinstalled in the image
 
 Everyday commands:
 

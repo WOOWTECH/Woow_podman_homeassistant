@@ -6,6 +6,7 @@
 #
 #   --with-matter | --without-matter              optional Matter server        (HA_MATTER)
 #   --with-postgres | --without-postgres          optional PostgreSQL recorder  (HA_POSTGRES)
+#   --with-mcp | --without-mcp                    optional HA-MCP server        (HA_MCP)
 #   --with-backup-timer | --without-backup-timer  optional daily hot backup     (HA_BACKUP_TIMER)
 #   --write-recorder-secret  with Postgres: add recorder_db_url to <config dir>/secrets.yaml
 #                            when it is not there yet (configuration.yaml is never edited)
@@ -35,13 +36,15 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 . "$REPO/scripts/render-args.sh"
 PODMAN_MIN=4.9
 
-sel_matter='' sel_pg='' sel_timer='' write_secret=0 no_start=0 no_smoke=0 allow_image_change=0
+sel_matter='' sel_pg='' sel_mcp='' sel_timer='' write_secret=0 no_start=0 no_smoke=0 allow_image_change=0
 while (($#)); do
   case $1 in
     --with-matter) sel_matter=true ;;
     --without-matter) sel_matter=false ;;
     --with-postgres) sel_pg=true ;;
     --without-postgres) sel_pg=false ;;
+    --with-mcp) sel_mcp=true ;;
+    --without-mcp) sel_mcp=false ;;
     --with-backup-timer) sel_timer=true ;;
     --without-backup-timer) sel_timer=false ;;
     --write-recorder-secret) write_secret=1 ;;
@@ -67,6 +70,7 @@ if [[ $QL_ENV_CREATED == 1 ]]; then
   ql_env_load "$envf"
   [[ -z $sel_matter ]] || ql_env_set "$envf" HA_MATTER "$sel_matter"
   [[ -z $sel_pg ]] || ql_env_set "$envf" HA_POSTGRES "$sel_pg"
+  [[ -z $sel_mcp ]] || ql_env_set "$envf" HA_MCP "$sel_mcp"
   [[ -z $sel_timer ]] || ql_env_set "$envf" HA_BACKUP_TIMER "$sel_timer"
   ql_info "review $envf (HA_CONFIG_DIR, devices, time zone), then run $0 again"
   exit 0
@@ -79,19 +83,20 @@ if [[ ! -f $envf ]]; then
 else
   ql_env_load "$envf"
 fi
-for kv in "HA_MATTER=$sel_matter" "HA_POSTGRES=$sel_pg" "HA_BACKUP_TIMER=$sel_timer"; do
+for kv in "HA_MATTER=$sel_matter" "HA_POSTGRES=$sel_pg" "HA_MCP=$sel_mcp" "HA_BACKUP_TIMER=$sel_timer"; do
   k=${kv%%=*} v=${kv#*=}
   [[ -n $v && $(ql_env_get "$k" false) != "$v" ]] || continue
   [[ $envf == "$HA_ENV_FILE" ]] && ql_env_set "$envf" "$k" "$v"
   QL_ENV[$k]=$v
   ((dry)) || ql_info "saved $k=$v in $envf"
 done
-for k in HA_MATTER HA_POSTGRES HA_BACKUP_TIMER; do
+for k in HA_MATTER HA_POSTGRES HA_MCP HA_BACKUP_TIMER; do
   ql_assert_match "$k" "$(ql_env_get "$k" false)" 'true|false'
 done
-with_matter=0 with_pg=0 with_timer=0
+with_matter=0 with_pg=0 with_mcp=0 with_timer=0
 if ha_on HA_MATTER; then with_matter=1; fi
 if ha_on HA_POSTGRES; then with_pg=1; fi
+if ha_on HA_MCP; then with_mcp=1; fi
 if ha_on HA_BACKUP_TIMER; then with_timer=1; fi
 port=$(ql_env_get HA_PORT 8123)
 dbport=$(ql_env_get HA_DB_PORT 15432)
@@ -129,6 +134,7 @@ fi
 ql_check_container_collision "$HA_CONTAINER" "$HA_UNIT"
 ((with_matter == 0)) || ql_check_container_collision "$HA_MATTER_CONTAINER" "$HA_MATTER_UNIT"
 ((with_pg == 0)) || ql_check_container_collision "$HA_DB_CONTAINER" "$HA_DB_UNIT"
+((with_mcp == 0)) || ql_check_container_collision "$HA_MCP_CONTAINER" "$HA_MCP_UNIT"
 ql_check_path_mounted "$cfg" "$HA_CONTAINER"
 # Ports are only checked when the container is not running: when it is, the collision guard
 # above has already confirmed that it is ours, and it is the one holding them.
@@ -142,6 +148,9 @@ if ((with_matter)) && ! ha_container_running "$HA_MATTER_CONTAINER"; then
 fi
 if ((with_pg)) && ! ha_container_running "$HA_DB_CONTAINER"; then
   ha_check_port die tcp "$dbport" "PostgreSQL" "$HA_DB_UNIT"
+fi
+if ((with_mcp)) && ! ha_container_running "$HA_MCP_CONTAINER"; then
+  ha_check_port die tcp 9584 "HA-MCP" "$HA_MCP_UNIT"
 fi
 
 # ---- 5. stage the selected units, render, validate --------------------------------------------
@@ -160,6 +169,10 @@ if ((with_matter)); then
   units+=("$HA_MATTER_UNIT")
 fi
 units+=("$HA_UNIT")
+if ((with_mcp)); then
+  cp -p "$opt/homeassistant-mcp.container" "$WORK/src/"
+  units+=("$HA_MCP_UNIT")
+fi
 if ((with_timer)); then
   cp -p "$REPO/systemd/homeassistant-backup.service" "$REPO/systemd/homeassistant-backup.timer" "$WORK/src/"
   units+=("$HA_TIMER_UNIT")
@@ -182,12 +195,25 @@ done
 ((with_matter)) || for f in homeassistant-matter.container homeassistant-matter-data.volume; do
   if ha_installed "$f"; then deselect+=("$f"); fi
 done
+if (( !with_mcp )) && ha_installed homeassistant-mcp.container; then
+  deselect+=(homeassistant-mcp.container)
+fi
 ((with_timer)) || for f in homeassistant-backup.timer homeassistant-backup.service; do
   if ha_installed "$f"; then deselect+=("$f"); fi
 done
 
 # ---- 6. images and secrets before any unit changes (a pull never runs inside a start timeout) --
 ql_pull_images "$WORK/out"
+if ((with_mcp && !dry)); then
+  podman secret exists "$HA_MCP_SECRET" \
+    || ql_die "HA_MCP=true needs the Podman secret $HA_MCP_SECRET containing a valid HA token"
+  podman run --rm --entrypoint=/bin/sh "$repo_img" -c 'test -x /usr/local/bin/woow-ha-mcp-launch' \
+    || ql_die "$repo_img does not contain the isolated HA-MCP server"
+fi
+if (( ! dry )); then
+  "$REPO/scripts/seed-image.sh" "$repo_img" "$cfg" "$HA_STATE_DIR/seed-manifest.json" \
+    || ql_die "preinstall seed failed; Home Assistant units were not changed"
+fi
 ((with_pg == 0)) || ql_secret_ensure "$HA_DB_SECRET" random:48
 
 # ---- 7. install changed files, then start / restart only what changed --------------------------

@@ -1,0 +1,29 @@
+name: preinstalled-ha-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  seed-and-install:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Quadlet generator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Check Python entry points
+        run: python3 -m py_compile scripts/build-preinstalled.py scripts/seed-config.py image/ha-mcp-launch.py image/patch-frontend.py
+
+      - name: Seed and resource registration tests
+        run: python3 -m unittest discover -s tests -p test_seed_config.py
+
+      - name: Install, upgrade, backup, restore and MCP script tests
+        run: bash tests/scripts-test.sh

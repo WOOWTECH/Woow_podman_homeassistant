@@ -114,6 +114,7 @@ ha_on HA_MATTER && imgs+=("$(ha_unit_image "$REPO/quadlet/optional/homeassistant
 ha_on HA_POSTGRES && imgs+=("$(ha_unit_image "$REPO/quadlet/optional/homeassistant-db.container")")
 for img in "${imgs[@]}"; do
   podman image exists "$img" && continue
+  [[ $img != localhost/* ]] || ql_die "$img is a locally built image; build it before upgrading"
   ql_info "pulling $img (Home Assistant keeps running)"
   podman pull "$img" >/dev/null || ql_die "podman pull $img failed; nothing was changed"
 done

@@ -1,0 +1,33 @@
+ARG BASE_IMAGE=ghcr.io/home-assistant/home-assistant:2026.9.1@sha256:612d76760b544cb40b7ba01387fdac964c59a6a550a50a4d30b4773c822d2918
+FROM ${BASE_IMAGE}
+
+ARG REBRAND_REV
+ARG VERSION_CONTROL_REV
+ARG HA_CORE_REV
+LABEL io.woowtech.preinstall="1" \
+      io.woowtech.rebrand.commit="${REBRAND_REV}" \
+      io.woowtech.version-control.commit="${VERSION_CONTROL_REV}" \
+      io.woowtech.ha-core.commit="${HA_CORE_REV}" \
+      org.opencontainers.image.source="https://github.com/WOOWTECH/Woow_podman_homeassistant"
+
+# The host bind mount hides /config at runtime. scripts/seed-image.sh copies this
+# reviewed package layer into the host config before the Quadlet starts.
+COPY payload/config/ /config/
+COPY payload/frontend-icons/ /usr/local/lib/python3.14/site-packages/hass_frontend/static/icons/
+COPY patch-frontend.py /usr/local/share/woow-ha/patch-frontend.py
+RUN python3 /usr/local/share/woow-ha/patch-frontend.py \
+      /usr/local/lib/python3.14/site-packages/hass_frontend \
+ && find /usr/local/lib/python3.14/site-packages/hass_frontend/static/icons \
+      \( -name '*.gz' -o -name '*.br' \) -delete \
+ && find /usr/local/lib/python3.14/site-packages/hass_frontend -maxdepth 1 \
+      \( -name '*.html.gz' -o -name '*.html.br' \) -delete
+COPY payload/requirements.txt /usr/local/share/woow-ha/requirements.txt
+# Keep ha-mcp's FastMCP/rich/websockets dependency set outside HA Core's Python
+# environment. HA Core's stock integrations require older rich/websockets ranges.
+RUN python3 -m pip install --no-cache-dir -r /usr/local/share/woow-ha/requirements.txt \
+ && python3 -m venv /opt/woow/ha-mcp \
+ && /opt/woow/ha-mcp/bin/python -m pip install --no-cache-dir 'ha-mcp==7.14.2' \
+ && python3 -m pip check \
+ && /opt/woow/ha-mcp/bin/python -m pip check
+COPY ha-mcp-launch.py /usr/local/bin/woow-ha-mcp-launch
+RUN chmod 755 /usr/local/bin/woow-ha-mcp-launch

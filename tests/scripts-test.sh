@@ -19,6 +19,7 @@ npass=0 nfail=0 nskip=0
 FAILED=()
 PIN_IMAGE=$(sed -n 's/^Image=//p' "$REPO/quadlet/homeassistant.container" | tail -n1)
 PIN_VER=${PIN_IMAGE##*:}
+PIN_VER=${PIN_VER%%-*}
 
 die_t() { printf 'ASSERTION FAILED: %s\n' "$*" >&2; exit 1; }
 eq() { [[ $1 == "$2" ]] || die_t "${3:-value}: expected [$2] got [$1]"; }
@@ -224,6 +225,9 @@ run() {
     export QL_POLL_INTERVAL=0.05 HA_SMOKE_MDNS='' HA_SMOKE_POLL=1
     unset XDG_CONFIG_HOME XDG_STATE_HOME QL_APP QL_DRY_RUN HA_SMOKE_CMD HA_ENV_FILE QL_QUADLET_DIR
     : >"$SHIM_STATE/calls"
+    # A localhost/ image is built before install, so each isolated shim host
+    # starts with the pinned image already present (no registry pull).
+    [[ $PIN_IMAGE != localhost/* ]] || mk_image "$PIN_IMAGE" "$PIN_VER"
     echo yes >"$SHIM_STATE/linger"
     [[ $(command -v podman) == "$SHIMS/podman" && $(command -v systemctl) == "$SHIMS/systemctl" ]] \
       || die_t "shims are not first on PATH; refusing to run"
@@ -317,7 +321,11 @@ t_install_then_idempotent_rerun_then_change() {
   has "$OUT" "installed and healthy"
   grep -qx "Volume=$CFG:/config:rw" "$(Q)/homeassistant.container" || die_t "config dir not rendered"
   grep -qx 'Timezone=local' "$(Q)/homeassistant.container" || die_t "time zone not rendered"
-  has "$(calls)" "podman pull $PIN_IMAGE"
+  if [[ $PIN_IMAGE == localhost/* ]]; then
+    hasnt "$(calls)" "podman pull $PIN_IMAGE"
+  else
+    has "$(calls)" "podman pull $PIN_IMAGE"
+  fi
   has "$(calls)" "systemctl --user restart homeassistant.service"
   has "$(smoke_args)" "--wait 900"
   # nothing changed: nothing is pulled, started or restarted
@@ -350,6 +358,20 @@ t_install_adds_and_removes_the_matter_option() {
   [[ ! -e $(Q)/homeassistant-matter.container ]] || die_t "Matter unit not removed"
   has "$(calls)" "systemctl --user stop homeassistant-matter.service"
   grep -qx 'HA_MATTER=false' "$(ENVF)" || die_t "--without-matter was not saved"
+}
+
+t_install_mcp_requires_secret_and_checks_the_image_launcher() {
+  need_quadlet
+  mk_repo
+  mk_config_dir
+  mk_env "HA_CONFIG_DIR=$CFG"
+  smoke_stub 0
+  expect_fail "$R/scripts/install.sh" --with-mcp
+  has "$OUT" "needs the Podman secret homeassistant-mcp-token"
+  printf 'test-token' | podman secret create homeassistant-mcp-token - >/dev/null
+  expect_ok "$R/scripts/install.sh" --with-mcp
+  [[ -f $(Q)/homeassistant-mcp.container ]] || die_t "HA-MCP unit not installed"
+  has "$(calls)" "--entrypoint=/bin/sh $PIN_IMAGE -c test -x /usr/local/bin/woow-ha-mcp-launch"
 }
 
 t_install_refuses_a_version_change() {
@@ -430,6 +452,8 @@ t_uninstall_keeps_data_and_purge_deletes_it() {
   [[ -d $CFG ]] || die_t "the config dir must survive --purge without --delete-config"
   ls -d "$HOME"/backups/homeassistant/ha-pre-purge-* >/dev/null || die_t "no final export before the purge"
   # and with --delete-config it goes, after an archive
+  # Purge removes locally built images; a later install needs a fresh build.
+  mk_image "$PIN_IMAGE" "$PIN_VER"
   expect_ok "$R/scripts/install.sh"
   expect_fail "$R/scripts/uninstall.sh" --purge --yes --delete-config=/wrong/path
   expect_ok "$R/scripts/uninstall.sh" --purge --yes "--delete-config=$CFG"
@@ -454,6 +478,7 @@ t_upgrade_moves_to_the_new_pin() {
   need_quadlet
   setup_installed
   sed -i "s|^Image=.*|Image=ghcr.io/home-assistant/home-assistant:2027.1.0|" "$R/quadlet/homeassistant.container"
+  sed -i 's/^Pull=never/Pull=missing/' "$R/quadlet/homeassistant.container"
   smoke_stub 0 0
   expect_ok "$R/scripts/upgrade.sh" --yes
   eq "$(installed_image)" ghcr.io/home-assistant/home-assistant:2027.1.0 "installed image after the upgrade"
@@ -468,6 +493,7 @@ t_upgrade_rolls_back_when_the_post_check_fails() {
   setup_installed
   echo marker >"$CFG/marker.txt"
   sed -i "s|^Image=.*|Image=ghcr.io/home-assistant/home-assistant:2027.1.0|" "$R/quadlet/homeassistant.container"
+  sed -i 's/^Pull=never/Pull=missing/' "$R/quadlet/homeassistant.container"
   # snapshot ok, post-upgrade check critical, rollback check ok
   smoke_stub 0 1 0
   # the "new version" damages the config dir, as a failed migration would: at the post-upgrade

@@ -1,0 +1,36 @@
+# Factory defaults for a fresh Podman instance. Existing configuration.yaml is preserved.
+homeassistant:
+  name: woowtech Home
+  language: zh-Hant
+  time_zone: Asia/Taipei
+  unit_system: metric
+  currency: TWD
+  country: TW
+
+# The official Core image contains all stock integrations. A fresh rootless
+# container starts only the integrations that do not need host radio privileges.
+# Bluetooth, DHCP packet capture and USB discovery can be enabled per host after
+# the matching devices and capabilities are configured.
+energy:
+file:
+go2rtc:
+history:
+logbook:
+media_source:
+mobile_app:
+ssdp:
+stream:
+sun:
+webhook:
+zeroconf:
+
+frontend:
+  themes: !include_dir_merge_named themes
+
+http:
+recorder:
+config_editor:
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml

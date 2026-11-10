@@ -66,6 +66,8 @@ radio=''
 [[ -z $(ql_env_get HA_ZIGBEE_DEVICE '') ]] || radio=$(ql_env_get HA_ZIGBEE_TARGET /dev/ttyACM0)
 matter=0
 [[ $(ql_env_get HA_MATTER false) == true ]] && matter=1
+mcp=0
+[[ $(ql_env_get HA_MCP false) == true ]] && mcp=1
 token=0
 if [[ -r $header ]]; then
   token=1
@@ -117,6 +119,7 @@ gather() {
     fact mdns_hap ''
   fi
   fact matter_enabled "$matter"
+  fact mcp_enabled "$mcp"
   fact want_config_src "$(realpath -m -- "$cfg")"
   fact ha_version_file "$(cat -- "$cfg/.HA_VERSION" 2>/dev/null || true)"
   fact radio_dev "$radio"
