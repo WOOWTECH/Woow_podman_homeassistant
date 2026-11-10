@@ -12,9 +12,9 @@
 
 精確映像 digest 與 revision 記在 [`image/sources.lock.json`](../image/sources.lock.json)。
 `ha-rebrand` 的原始全量 Core／前端管線仍以 **2026.7.2** 建置。Podman
-`2026.9.1-r4` 沿用官方 2026.9.1 的執行程式與整合，從固定的私有來源
+`2026.9.1-r5` 沿用官方 2026.9.1 的執行程式與整合，從固定的私有來源
 取得品牌語系規則與色票，針對 2026.9.1 的 Core 顯示名稱、PWA manifest、
-已編譯前端、前後端翻譯與圖示做品牌移植。它不覆蓋舊版 `const.py`，
+已編譯前端、前後端翻譯、後端顯示字串與圖示做品牌移植。它不覆蓋舊版 `const.py`，
 故 Core 版本與資料庫結構仍是 2026.9.1。第三方供應商名稱、套件識別字
 與文件網址保留原樣。
 
@@ -50,7 +50,7 @@ Recorder 資料庫及 `.storage` 的機器身分資料都由實際實例建立�
 gh repo clone WOOWTECH/ha-rebrand ~/ha-rebrand
 git -C ~/ha-rebrand checkout --detach 5c2e82e6a65c7eafa4958e95b9612c825ea15de9
 python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
-# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r4
+# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r5
 ```
 
 建置腳本要求來源 revision 完全符合 lock，另外下載兩個發布檔並檢查 SHA‑256；
@@ -104,7 +104,7 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
 - 這台主機有藍牙介面，但 rootless 測試容器沒有管理它的 `NET_ADMIN`／
   `NET_RAW` 權限，因此 HA 自動發現藍牙後會記錄權限錯誤。藍牙硬體能力
   仍須另做有權限的主機驗收；不以網頁 200 視作藍牙通過。
-- `2026.9.1-r4` 的品牌層以已編譯的官方前端為基礎，未直接使用
+- `2026.9.1-r5` 的品牌層以已編譯的官方前端為基礎，未直接使用
   `ha-rebrand` 2026.7.2 的完整前端程式；更新上游版本時須重新執行
   品牌建置與已登入瀏覽器驗收。瀏覽器可能快取同名 JS 檔，升版後請強制
   重新載入一次。

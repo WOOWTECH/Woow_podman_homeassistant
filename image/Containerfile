@@ -38,12 +38,26 @@ COPY payload/ohf-badge.svg /usr/local/lib/python3.14/site-packages/hass_frontend
 COPY brand-core.py /usr/local/share/woow-ha/brand-core.py
 COPY payload/brand-rules.py /usr/local/share/woow-ha/brand_rules.py
 COPY payload/patch-colors.sh /usr/local/share/woow-ha/patch-colors.sh
+COPY payload/patch-python-strings.sh /usr/local/share/woow-ha/patch-python-strings.sh
 RUN python3 /usr/local/share/woow-ha/brand-core.py \
  && sh /usr/local/share/woow-ha/patch-colors.sh \
       /usr/local/lib/python3.14/site-packages/hass_frontend \
+ && sh /usr/local/share/woow-ha/patch-python-strings.sh \
  && rm -f /usr/local/lib/python3.14/site-packages/hass_frontend/static/images/ohf-badge.svg.gz \
           /usr/local/lib/python3.14/site-packages/hass_frontend/static/images/ohf-badge.svg.br \
  && python3 -m py_compile /usr/src/homeassistant/homeassistant/const.py \
-      /usr/src/homeassistant/homeassistant/components/frontend/__init__.py
-LABEL io.woowtech.brand="2026.9.1-r4" \
+      /usr/src/homeassistant/homeassistant/components/frontend/__init__.py \
+      /usr/src/homeassistant/homeassistant/helpers/system_info.py \
+      /usr/src/homeassistant/homeassistant/components/homeassistant/logbook.py \
+      /usr/src/homeassistant/homeassistant/components/backup/entity.py \
+      /usr/src/homeassistant/homeassistant/components/homeassistant/triggers/homeassistant.py \
+      /usr/src/homeassistant/homeassistant/core.py \
+      /usr/src/homeassistant/homeassistant/bootstrap.py \
+      /usr/src/homeassistant/homeassistant/helpers/script.py \
+      /usr/src/homeassistant/homeassistant/helpers/template/extensions/base.py \
+      /usr/src/homeassistant/homeassistant/components/backup/manager.py \
+      /usr/src/homeassistant/homeassistant/components/hassio/const.py \
+      /usr/src/homeassistant/homeassistant/components/hassio/coordinator.py \
+ && python3 -c 'from pathlib import Path; s=Path("/usr/src/homeassistant/homeassistant/helpers/system_info.py").read_text(); assert "woowtech Container" in s and "Home Assistant Container" not in s'
+LABEL io.woowtech.brand="2026.9.1-r5" \
       org.opencontainers.image.title="woowtech HA Core"

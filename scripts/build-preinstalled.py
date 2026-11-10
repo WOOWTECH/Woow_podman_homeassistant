@@ -75,7 +75,7 @@ def add_protected_apps(archive: Path, config: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rebrand", required=True, type=Path, help="local ha-rebrand checkout")
-    parser.add_argument("--tag", default="localhost/woowtech/ha-preinstalled:2026.9.1-r4")
+    parser.add_argument("--tag", default="localhost/woowtech/ha-preinstalled:2026.9.1-r5")
     parser.add_argument("--assets-dir", type=Path,
                         help="directory holding the two locked release assets; otherwise download with gh")
     args = parser.parse_args()
@@ -115,6 +115,8 @@ def main() -> int:
         branding = source / "pipelines/woowtech-cloud"
         shutil.copy2(branding / "patches/brand_rules.py", payload / "brand-rules.py")
         shutil.copy2(branding / "patch-colors.sh", payload / "patch-colors.sh")
+        shutil.copy2(branding / "patches/patch-python-strings.sh",
+                     payload / "patch-python-strings.sh")
         shutil.copy2(source / "brands/woowtech/frontend/public/static/images/ohf-badge.svg",
                      payload / "ohf-badge.svg")
         shutil.copy2(REPO / "image/configuration.yaml", config / "configuration.yaml")
