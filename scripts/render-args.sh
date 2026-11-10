@@ -9,7 +9,7 @@
 # that is off renders as a comment, so the installed unit says what was chosen.
 
 render_args() {
-  local priv dev tgt extra tz bt listen cfg port dbport repo home_p spec lines=''
+  local priv dev tgt extra tz bt listen cfg port dbport repo home_p spec lines='' image
   local -a q_extra=()
 
   cfg=$(ql_env_get HA_CONFIG_DIR)
@@ -73,6 +73,8 @@ render_args() {
   esac
   ql_assert_match "repo checkout path (move the checkout to a path without spaces or special characters)" \
     "$repo" '(%h/)?[A-Za-z0-9._/+-]+'
+  image=$(sed -n 's/^Image=//p' "$(dirname "${BASH_SOURCE[0]}")/../quadlet/homeassistant.container" | tail -n1)
+  [[ -n $image ]] || ql_die "quadlet/homeassistant.container has no Image= pin"
 
   # shellcheck disable=SC2034 # RENDER_ARGS is read by the caller
   RENDER_ARGS=(
@@ -82,5 +84,6 @@ render_args() {
     "HA_DBUS_LINE=$dbus_line"
     "HA_MATTER_LISTEN_LINE=$listen_line"
     "HA_REPO_DIR=$repo"
+    "HA_IMAGE=$image"
   )
 }

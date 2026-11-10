@@ -123,12 +123,13 @@ def api_data(facts, work):
 
 
 def image_version(image):
-    """2026.9.1 from ghcr.io/home-assistant/home-assistant:2026.9.1; '' for floating tags."""
+    """Extract the Core version; ignore a package revision such as -r1."""
     if not image or "@" in image:
         return ""
     tail = image.rsplit("/", 1)[-1]
     tag = tail.split(":", 1)[1] if ":" in tail else ""
-    return tag if re.match(r"^\d+\.\d+", tag) else ""
+    match = re.match(r"^(\d+\.\d+\.\d+)(?:-|$)", tag)
+    return match.group(1) if match else ""
 
 
 def build_snapshot(facts, work, cfg):
@@ -168,6 +169,11 @@ def evaluate(cur, pre, strict):
         add("container.health", DEGR, health in ("healthy", "starting"), f"health={health or 'none'}")
     add("container.config_mount", CRIT, f.get("ctr_config_src") == f.get("want_config_src"),
         f"/config <- {f.get('ctr_config_src') or '<none>'} (HA_CONFIG_DIR {f.get('want_config_src')})")
+    if f.get("mcp_enabled") == "1":
+        add("mcp.tcp", CRIT, f.get("tcp_9584") == "1",
+            f"HA-MCP TCP 9584 listening: {f.get('tcp_9584') == '1'}")
+        add("mcp.http", DEGR, f.get("http_hamcp") != "000",
+            f"HA-MCP HTTP responds: {f.get('http_hamcp') or '000'}")
     want_ver = image_version(f.get("want_image") or f.get("ctr_image"))
     if http_ok and want_ver:
         add("config.ha_version", CRIT if quadlet else INFO, f.get("ha_version_file") == want_ver,

@@ -1,0 +1,28 @@
+{
+  "ha_core": {
+    "repository": "WOOWTECH/Woow_haos_ha_core",
+    "commit": "0db2b04cac91632aa34a22f9610197ee7e22546f",
+    "version": "2026.9.1",
+    "upstream_image": "ghcr.io/home-assistant/home-assistant:2026.9.1@sha256:612d76760b544cb40b7ba01387fdac964c59a6a550a50a4d30b4773c822d2918"
+  },
+  "ha_rebrand": {
+    "repository": "WOOWTECH/ha-rebrand",
+    "commit": "5c2e82e6a65c7eafa4958e95b9612c825ea15de9"
+  },
+  "ha_version_control": {
+    "repository": "WOOWTECH/Woow_ha_version_control",
+    "commit": "176bfa0fa8359610d3667c85cb778e70f10e5e9f"
+  },
+  "woow_protected_apps": {
+    "repository": "WOOWTECH/Woow_podman_auth_gateway",
+    "tag": "2.0.0-r1",
+    "asset": "woow_protected_apps-2.0.0-r1.tar.gz",
+    "sha256": "ddf45b1727ba0f35e6cb79d05f28765b1147bff0e2b895265354b3e4d5a362d0"
+  },
+  "mushroom": {
+    "repository": "piitaya/lovelace-mushroom",
+    "tag": "v5.2.3",
+    "asset": "mushroom.js",
+    "sha256": "631668268e474d5357e0f17f161322499ea5c93a910431477e112653d7aa456b"
+  }
+}

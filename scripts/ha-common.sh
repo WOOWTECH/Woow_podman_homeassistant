@@ -14,6 +14,9 @@ HA_DB_CONTAINER=homeassistant-db
 HA_DB_UNIT=homeassistant-db.service
 HA_DB_VOLUME=homeassistant-db-data
 HA_DB_SECRET=homeassistant-db-password
+HA_MCP_CONTAINER=homeassistant-mcp
+HA_MCP_UNIT=homeassistant-mcp.service
+HA_MCP_SECRET=homeassistant-mcp-token
 HA_TIMER_UNIT=homeassistant-backup.timer
 HA_ENV_FILE=${HA_ENV_FILE:-$HOME/.config/$HA_APP/$HA_APP.env}
 HA_QUADLET_DIR=${QL_QUADLET_DIR:-$HOME/.config/containers/systemd}
@@ -50,11 +53,12 @@ ha_unit_image() {
 ha_repo_image() { ha_unit_image "$REPO/quadlet/homeassistant.container"; }
 ha_installed_image() { ha_unit_image "$HA_QUADLET_DIR/homeassistant.container"; }
 
-# ha_image_version <image>: the tag when it looks like a version (2026.9.1), else nothing
+# ha_image_version <image>: the Core version at the start of a tag, excluding a
+# package revision such as -r1 (which is not a Home Assistant Core version).
 ha_image_version() {
   local tail=${1##*/} tag=''
   [[ $1 != *@* && $tail == *:* ]] && tag=${tail#*:}
-  [[ $tag =~ ^[0-9]+\.[0-9]+ ]] && printf '%s' "$tag"
+  [[ $tag =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-|$) ]] && printf '%s' "${BASH_REMATCH[1]}"
   return 0
 }
 
@@ -92,7 +96,7 @@ ha_installed() {
 # ha_units_installed: the units this app has installed, in start order
 ha_units_installed() {
   local u unit
-  for u in homeassistant-db.container homeassistant-matter.container homeassistant.container homeassistant-backup.timer; do
+  for u in homeassistant-db.container homeassistant-matter.container homeassistant.container homeassistant-mcp.container homeassistant-backup.timer; do
     ha_installed "$u" || continue
     # ql_unit_for prints without a trailing newline (it is meant for $(...)): add one, or the
     # callers' mapfile gets a single glued-together "a.serviceb.service" element.

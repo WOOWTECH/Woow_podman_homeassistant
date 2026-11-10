@@ -1,0 +1,34 @@
+# Optional HA-MCP server in its isolated Python environment. A valid HA token
+# must be stored as a Podman secret before this unit is enabled.
+[Unit]
+Description=HA-MCP for Home Assistant (WOOWTECH Quadlet)
+After=homeassistant.service
+Wants=homeassistant.service
+
+[Container]
+ContainerName=homeassistant-mcp
+Image=@@HA_IMAGE@@
+Pull=never
+Network=host
+Label=io.woowtech.app=homeassistant
+LogDriver=journald
+PodmanArgs=--entrypoint=/usr/local/bin/woow-ha-mcp-launch
+Environment=HOMEASSISTANT_URL=http://127.0.0.1:@@HA_PORT@@
+Environment=MCP_HOST=127.0.0.1
+Environment=MCP_PORT=9584
+Secret=homeassistant-mcp-token,type=env,target=HOMEASSISTANT_TOKEN
+HealthCmd=curl -sS -m 5 -o /dev/null http://127.0.0.1:9584/mcp
+HealthInterval=60s
+HealthTimeout=10s
+HealthRetries=5
+HealthStartPeriod=120s
+HealthOnFailure=kill
+
+[Service]
+SuccessExitStatus=143
+Restart=always
+RestartSec=10
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target

@@ -9,6 +9,7 @@ Linux 主機。一道指令完成安裝，一道指令完成升級（失敗自�
 - 使用 host 網路，因此 mDNS/SSDP 探索、HomeKit 橋接與同主機的反向代理都能正常運作
 - 預設記錄器是設定目錄裡的 SQLite；PostgreSQL 與 Matter 伺服器為選配
 - 映像檔版本釘在本倉庫，本倉庫就是版本的唯一來源
+- 本機映像預裝 WOOWTECH 整合、主題、藍圖與靜態資源；詳見[來源對齊與建置說明](docs/preinstalled-ha.md)
 - 主機專屬設定放在 `~/.config/homeassistant/homeassistant.env`（權限 0600），不會進 git
 
 > **原本使用 compose 的人**：本倉庫在 v1 之前是 Docker/Podman Compose 堆疊，最後一版保留在
@@ -66,13 +67,18 @@ Home Assistant 本身就是智慧家庭作業系統，因此沒有對應的 Home
 git clone https://github.com/WOOWTECH/Woow_podman_homeassistant.git
 cd Woow_podman_homeassistant
 
+# 先從私有 rebrand 來源建置版本固定的本機映像
+gh repo clone WOOWTECH/ha-rebrand ~/ha-rebrand
+git -C ~/ha-rebrand checkout --detach 5c2e82e6a65c7eafa4958e95b9612c825ea15de9
+python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
+
 # 1. 第一次執行：建立 ~/.config/homeassistant/homeassistant.env 後停下來讓你檢查
 scripts/install.sh
 
 # 2. 編輯設定（至少要設定 HA_CONFIG_DIR 與你的 Zigbee 接收器）
 ${EDITOR:-nano} ~/.config/homeassistant/homeassistant.env
 
-# 3. 正式安裝：算出 unit 內容、dry-run 驗證、拉取映像檔、啟動 HA
+# 3. 正式安裝：驗證 unit 與本機映像、預裝 /config、啟動 HA
 scripts/install.sh
 ```
 
@@ -91,6 +97,7 @@ scripts/install.sh
 | `--no-smoke` | 跳過最後的檢查 |
 | `--with-matter` / `--without-matter` | 加入或移除選配的 Matter 伺服器 |
 | `--with-postgres` / `--without-postgres` | 加入或移除選配的 PostgreSQL 記錄器 |
+| `--with-mcp` / `--without-mcp` | 加入或移除獨立 HA‑MCP 服務；需先提供有效的 HA token secret |
 | `--with-backup-timer` / `--without-backup-timer` | 加入或移除每日熱備份 timer |
 
 `--with…` / `--without…` 的選擇會存進設定檔，之後直接重跑會沿用。取消選配元件時會停用並移除它的
@@ -105,6 +112,7 @@ scripts/install.sh
 | `quadlet/homeassistant.container` | `~/.config/containers/systemd/` | `homeassistant.service` |
 | `quadlet/optional/homeassistant-matter.container` + `…-matter-data.volume` | 同上 | `homeassistant-matter.service` |
 | `quadlet/optional/homeassistant-db.container` + `…-db-data.volume` + `homeassistant.network` | 同上 | `homeassistant-db.service` |
+| `quadlet/optional/homeassistant-mcp.container` | 同上 | `homeassistant-mcp.service` |
 | `systemd/homeassistant-backup.{service,timer}` | `~/.config/systemd/user/` | `homeassistant-backup.timer` |
 
 單元內容是在安裝時算出來的：`@@VAR@@` 佔位符會替換成你的實際值，因此安裝後的 unit 直接就看得出
