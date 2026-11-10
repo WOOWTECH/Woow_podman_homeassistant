@@ -12,7 +12,7 @@
 
 精確映像 digest 與 revision 記在 [`image/sources.lock.json`](../image/sources.lock.json)。
 `ha-rebrand` 的原始全量 Core／前端管線仍以 **2026.7.2** 建置。Podman
-`2026.9.1-r5` 沿用官方 2026.9.1 的執行程式與整合，從固定的私有來源
+`2026.9.1-r7` 沿用官方 2026.9.1 的執行程式與整合，從固定的私有來源
 取得品牌語系規則與色票，針對 2026.9.1 的 Core 顯示名稱、PWA manifest、
 已編譯前端、前後端翻譯、後端顯示字串與圖示做品牌移植。它不覆蓋舊版 `const.py`，
 故 Core 版本與資料庫結構仍是 2026.9.1。第三方供應商名稱、套件識別字
@@ -50,7 +50,7 @@ Recorder 資料庫及 `.storage` 的機器身分資料都由實際實例建立�
 gh repo clone WOOWTECH/ha-rebrand ~/ha-rebrand
 git -C ~/ha-rebrand checkout --detach 5c2e82e6a65c7eafa4958e95b9612c825ea15de9
 python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
-# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r5
+# 映像：localhost/woowtech/ha-preinstalled:2026.9.1-r7
 ```
 
 建置腳本要求來源 revision 完全符合 lock，另外下載兩個發布檔並檢查 SHA‑256；
@@ -70,6 +70,16 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
 
 ## 驗證與限制
 
+- 2026-11-10 `r7` 修正 `cover_rf_time_based` 在 HA 2026.9 註冊
+  `set_known_position`／`set_known_action` 時被拒絕的 entity-service schema。
+  隔離實例完成開／關、動作與位置 37 的校準；正式服務以 28 MB 冷備份
+  從 `r6` 升至 `r7`，23 項 smoke check 全過。HA、MCP、Matter 容器
+  healthcheck 皆 healthy；詳細驗證見
+  [`custom-components-validation-2026-11-10.md`](custom-components-validation-2026-11-10.md)。
+- 2026-11-10 `r6` 修正 `woow_ha_remote_ha_control` 在 HA 重啟後搶先載入代理服務時，
+  `service_description_cache` 尚未建立造成 `KeyError` 的問題；快取鍵同步改為
+  HA 2026.9 使用的 `(domain, service)`。詳細實測見
+  [`custom-components-validation-2026-11-10.md`](custom-components-validation-2026-11-10.md)。
 - 2026-11-10 `r5` 加入舊品牌管線的後端顯示字串修補；隔離實例
   `18123` 啟動並回 200，系統資訊的安裝類型已是 `woowtech Container`。
   正式服務以 26 MB 冷備份從 `r4` 切到 `r5`，從另一台區網主機存取
@@ -113,7 +123,7 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
 - 這台主機有藍牙介面，但 rootless 測試容器沒有管理它的 `NET_ADMIN`／
   `NET_RAW` 權限，因此 HA 自動發現藍牙後會記錄權限錯誤。藍牙硬體能力
   仍須另做有權限的主機驗收；不以網頁 200 視作藍牙通過。
-- `2026.9.1-r5` 的品牌層以已編譯的官方前端為基礎，未直接使用
+- `2026.9.1-r7` 的品牌層以已編譯的官方前端為基礎，未直接使用
   `ha-rebrand` 2026.7.2 的完整前端程式；更新上游版本時須重新執行
   品牌建置與已登入瀏覽器驗收。瀏覽器可能快取同名 JS 檔，升版後請強制
   重新載入一次。

@@ -59,5 +59,5 @@ RUN python3 /usr/local/share/woow-ha/brand-core.py \
       /usr/src/homeassistant/homeassistant/components/hassio/const.py \
       /usr/src/homeassistant/homeassistant/components/hassio/coordinator.py \
  && python3 -c 'from pathlib import Path; s=Path("/usr/src/homeassistant/homeassistant/helpers/system_info.py").read_text(); assert "woowtech Container" in s and "Home Assistant Container" not in s'
-LABEL io.woowtech.brand="2026.9.1-r5" \
+LABEL io.woowtech.brand="2026.9.1-r7" \
       org.opencontainers.image.title="woowtech HA Core"

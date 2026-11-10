@@ -72,10 +72,67 @@ def add_protected_apps(archive: Path, config: Path) -> None:
         raise ValueError("protected-apps release has the wrong integration domain")
 
 
+def patch_remote_proxy_services(config: Path) -> None:
+    """Match HA 2026.9's lazily created, tuple-keyed service description cache."""
+    path = config / "custom_components/woow_ha_remote_ha_control/proxy_services.py"
+    source = path.read_text(encoding="utf-8")
+    changes = (
+        (
+            "description_cache = self.hass.data[SERVICE_DESCRIPTION_CACHE]",
+            "description_cache = self.hass.data.setdefault(SERVICE_DESCRIPTION_CACHE, {})",
+            2,
+        ),
+        (
+            '            service = f"{domain}.{service_name}"\n'
+            "            if service in description_cache:\n"
+            "                del description_cache[service]",
+            "            description_cache.pop((domain, service_name), None)",
+            1,
+        ),
+        (
+            'description_cache[f"{domain}.{service}"] = service_info',
+            "description_cache[(domain, service)] = service_info",
+            1,
+        ),
+    )
+    for original, replacement, expected_count in changes:
+        if source.count(original) != expected_count:
+            raise ValueError("remote proxy cache source changed; review HA compatibility patch")
+        source = source.replace(original, replacement)
+    path.write_text(source, encoding="utf-8")
+
+
+def patch_rf_cover_services(config: Path) -> None:
+    """Use HA 2026.9's entity-service schema for the RF cover platform."""
+    path = config / "custom_components/cover_rf_time_based/cover.py"
+    source = path.read_text(encoding="utf-8")
+    changes = (
+        (
+            "POSITION_SCHEMA = vol.Schema(\n"
+            "    {\n"
+            "        vol.Required(ATTR_ENTITY_ID): cv.entity_ids,",
+            "POSITION_SCHEMA = cv.make_entity_service_schema(\n"
+            "    {",
+        ),
+        (
+            "ACTION_SCHEMA = vol.Schema(\n"
+            "    {\n"
+            "        vol.Required(ATTR_ENTITY_ID): cv.entity_ids,",
+            "ACTION_SCHEMA = cv.make_entity_service_schema(\n"
+            "    {",
+        ),
+    )
+    for original, replacement in changes:
+        if source.count(original) != 1:
+            raise ValueError("RF cover service source changed; review HA compatibility patch")
+        source = source.replace(original, replacement)
+    path.write_text(source, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rebrand", required=True, type=Path, help="local ha-rebrand checkout")
-    parser.add_argument("--tag", default="localhost/woowtech/ha-preinstalled:2026.9.1-r5")
+    parser.add_argument("--tag", default="localhost/woowtech/ha-preinstalled:2026.9.1-r7")
     parser.add_argument("--assets-dir", type=Path,
                         help="directory holding the two locked release assets; otherwise download with gh")
     args = parser.parse_args()
@@ -136,6 +193,8 @@ def main() -> int:
             parser.error("ha_mcp_tools config flow changed; re-verify Podman server choice")
         flow.write_text(source_text.replace(anchor, "menu_options=[ENTRY_TYPE_TOOLS],"),
                         encoding="utf-8")
+        patch_remote_proxy_services(config)
+        patch_rf_cover_services(config)
         components = [p for p in (config / "custom_components").iterdir() if p.is_dir()]
         themes = list((config / "themes").glob("*.yaml"))
         blueprints = list((config / "blueprints").rglob("*.yaml"))
