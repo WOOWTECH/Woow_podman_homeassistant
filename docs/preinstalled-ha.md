@@ -70,6 +70,15 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
 
 ## 驗證與限制
 
+- 2026-11-10 `r5` 加入舊品牌管線的後端顯示字串修補；隔離實例
+  `18123` 啟動並回 200，系統資訊的安裝類型已是 `woowtech Container`。
+  正式服務以 26 MB 冷備份從 `r4` 切到 `r5`，從另一台區網主機存取
+  `8123` 回 200；HA、MCP、Matter 健康檢查全過。授權 API 回報 Core
+  `2026.9.1`、161 個已載入元件與 Matter 已載入。升級 smoke 比對為
+  22 項通過、0 項關鍵失敗、1 項降級失敗：WLED 取資料時回報
+  `invalid_response_github_error`；`r4`／`r5` 的 WLED 程式檔雜湊相同。
+  smoke 的 API 項目因未設定獨立測試 header 而跳過，另已用 MCP 所持
+  授權在實際 API 驗證。
 - 2026-11-10 `r4` 的隔離實例從 HTTP 回傳 `woowtech` PWA 名稱與
   `#6183fc` 主色；繁中應用程式頁面說明符合 Podman 架構，已編譯入口 JS
   與 onboarding HTML 不含原版產品名稱。正式服務以冷備份與自動回滾流程
