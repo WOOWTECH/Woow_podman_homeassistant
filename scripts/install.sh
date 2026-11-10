@@ -195,9 +195,9 @@ done
 ((with_matter)) || for f in homeassistant-matter.container homeassistant-matter-data.volume; do
   if ha_installed "$f"; then deselect+=("$f"); fi
 done
-((with_mcp)) || for f in homeassistant-mcp.container; do
-  if ha_installed "$f"; then deselect+=("$f"); fi
-done
+if (( !with_mcp )) && ha_installed homeassistant-mcp.container; then
+  deselect+=(homeassistant-mcp.container)
+fi
 ((with_timer)) || for f in homeassistant-backup.timer homeassistant-backup.service; do
   if ha_installed "$f"; then deselect+=("$f"); fi
 done

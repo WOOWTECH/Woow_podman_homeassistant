@@ -88,7 +88,8 @@ python3 scripts/build-preinstalled.py --rebrand ~/ha-rebrand
   `sun.sun`。另完成線上設定／SQLite 備份，以及停止 HA／Matter 後的
   26 MB 冷備份；冷備份內含 Matter 資料卷，全部 SHA‑256 校驗通過，
   服務重啟後 8123／5580 回 200、Matter entry 與 MCP 工具仍可用；
-  三個容器的 Podman healthcheck 均回 `healthy`。
+  三個容器的 Podman healthcheck 均回 `healthy`。提供暫存 API token
+  後，正式 smoke test 16 項通過、0 項失敗。
 - 實際新實例已建立管理員，但地理位置、analytics 與整合選擇等首次設定
   步驟仍待使用者完成；HACS GitHub 授權、實體 Matter 配對及藍牙硬體
   測試也需要實際帳號或裝置。
