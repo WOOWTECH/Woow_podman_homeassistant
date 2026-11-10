@@ -31,3 +31,19 @@ RUN python3 -m pip install --no-cache-dir -r /usr/local/share/woow-ha/requiremen
  && /opt/woow/ha-mcp/bin/python -m pip check
 COPY ha-mcp-launch.py /usr/local/bin/woow-ha-mcp-launch
 RUN chmod 755 /usr/local/bin/woow-ha-mcp-launch
+
+# Keep the 2026.9.1 feature set. Rebrand its Core display metadata and compiled
+# frontend using the locked locale rules and color palette from ha-rebrand.
+COPY payload/ohf-badge.svg /usr/local/lib/python3.14/site-packages/hass_frontend/static/images/ohf-badge.svg
+COPY brand-core.py /usr/local/share/woow-ha/brand-core.py
+COPY payload/brand-rules.py /usr/local/share/woow-ha/brand_rules.py
+COPY payload/patch-colors.sh /usr/local/share/woow-ha/patch-colors.sh
+RUN python3 /usr/local/share/woow-ha/brand-core.py \
+ && sh /usr/local/share/woow-ha/patch-colors.sh \
+      /usr/local/lib/python3.14/site-packages/hass_frontend \
+ && rm -f /usr/local/lib/python3.14/site-packages/hass_frontend/static/images/ohf-badge.svg.gz \
+          /usr/local/lib/python3.14/site-packages/hass_frontend/static/images/ohf-badge.svg.br \
+ && python3 -m py_compile /usr/src/homeassistant/homeassistant/const.py \
+      /usr/src/homeassistant/homeassistant/components/frontend/__init__.py
+LABEL io.woowtech.brand="2026.9.1-r4" \
+      org.opencontainers.image.title="woowtech HA Core"

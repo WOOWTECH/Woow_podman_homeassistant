@@ -14,7 +14,7 @@ Documentation=https://github.com/WOOWTECH/Woow_podman_homeassistant
 [Container]
 ContainerName=homeassistant
 # The repo is the source of truth for the version: bump it here, then run scripts/upgrade.sh.
-Image=localhost/woowtech/ha-preinstalled:2026.9.1-r3
+Image=localhost/woowtech/ha-preinstalled:2026.9.1-r4
 Pull=never
 Network=host
 Label=io.woowtech.app=homeassistant

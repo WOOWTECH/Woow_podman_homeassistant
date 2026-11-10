@@ -75,7 +75,7 @@ def add_protected_apps(archive: Path, config: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rebrand", required=True, type=Path, help="local ha-rebrand checkout")
-    parser.add_argument("--tag", default="localhost/woowtech/ha-preinstalled:2026.9.1-r3")
+    parser.add_argument("--tag", default="localhost/woowtech/ha-preinstalled:2026.9.1-r4")
     parser.add_argument("--assets-dir", type=Path,
                         help="directory holding the two locked release assets; otherwise download with gh")
     args = parser.parse_args()
@@ -112,6 +112,11 @@ def main() -> int:
                                         for item in icon_files):
             parser.error("WoowTech frontend icon source changed; review the static assets")
         shutil.copytree(icon_source, payload / "frontend-icons")
+        branding = source / "pipelines/woowtech-cloud"
+        shutil.copy2(branding / "patches/brand_rules.py", payload / "brand-rules.py")
+        shutil.copy2(branding / "patch-colors.sh", payload / "patch-colors.sh")
+        shutil.copy2(source / "brands/woowtech/frontend/public/static/images/ohf-badge.svg",
+                     payload / "ohf-badge.svg")
         shutil.copy2(REPO / "image/configuration.yaml", config / "configuration.yaml")
         for basename in ("automations.yaml", "scripts.yaml", "scenes.yaml"):
             shutil.copy2(source / "pipelines/woowtech-cloud/config-seed" / basename,
@@ -146,6 +151,7 @@ def main() -> int:
         shutil.copy2(REPO / "image/Containerfile", work / "Containerfile")
         shutil.copy2(REPO / "image/ha-mcp-launch.py", work / "ha-mcp-launch.py")
         shutil.copy2(REPO / "image/patch-frontend.py", work / "patch-frontend.py")
+        shutil.copy2(REPO / "image/brand-core.py", work / "brand-core.py")
         # Validate the image payload before the time-consuming OCI build. An empty
         # target lets seed-config check path hygiene without reading any host data.
         empty = work / "empty-config"

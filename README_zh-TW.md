@@ -9,7 +9,7 @@ Linux 主機。一道指令完成安裝，一道指令完成升級（失敗自�
 - 使用 host 網路，因此 mDNS/SSDP 探索、HomeKit 橋接與同主機的反向代理都能正常運作
 - 預設記錄器是設定目錄裡的 SQLite；PostgreSQL 與 Matter 伺服器為選配
 - 映像檔版本釘在本倉庫，本倉庫就是版本的唯一來源
-- 本機映像預裝 WOOWTECH 整合、主題、藍圖與靜態資源；詳見[來源對齊與建置說明](docs/preinstalled-ha.md)
+- 本機映像將 HA Core 2026.9.1 品牌化，並預裝 WOOWTECH 整合、主題、藍圖與靜態資源；詳見[來源對齊與建置說明](docs/preinstalled-ha.md)
 - 主機專屬設定放在 `~/.config/homeassistant/homeassistant.env`（權限 0600），不會進 git
 
 > **原本使用 compose 的人**：本倉庫在 v1 之前是 Docker/Podman Compose 堆疊，最後一版保留在
@@ -26,7 +26,8 @@ Linux 主機。一道指令完成安裝，一道指令完成升級（失敗自�
 | **Podman + systemd**（本倉庫） | [Woow_podman_homeassistant](https://github.com/WOOWTECH/Woow_podman_homeassistant) | Quadlet 單元 |
 | **K3s / Kubernetes** | [Woow_k3s_homeassistant](https://github.com/WOOWTECH/Woow_k3s_homeassistant) | Helm chart |
 
-Home Assistant 本身就是智慧家庭作業系統，因此沒有對應的 Home Assistant 附加元件版本。
+此 Podman 版本執行的是 Core，不含 HAOS 與 Supervisor，因此沒有 HA 應用程式商店；
+原本需以附加元件執行的服務，改用獨立 Podman 套件部署。
 
 ---
 
