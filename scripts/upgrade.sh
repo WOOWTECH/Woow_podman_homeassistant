@@ -142,7 +142,7 @@ rollback_now() {
   ql_warn "this checkout still pins $new_img; check out the previous version before running install.sh"
   exit 1
 }
-if ! "$REPO/scripts/install.sh" --allow-image-change --no-smoke; then
+if ! "$REPO/scripts/install.sh" --allow-image-change --preserve-existing-seed --no-smoke; then
   rollback_now "install.sh failed"
 fi
 rc=0

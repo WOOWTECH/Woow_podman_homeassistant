@@ -20,10 +20,10 @@ jobs:
           sudo apt-get install -y podman
 
       - name: Check Python entry points
-        run: python3 -m py_compile scripts/build-preinstalled.py scripts/seed-config.py image/ha-mcp-launch.py image/patch-frontend.py
+        run: python3 -m py_compile scripts/build-preinstalled.py scripts/seed-config.py scripts/seed-existing-config.py image/ha-mcp-launch.py image/patch-frontend.py
 
       - name: Seed and resource registration tests
-        run: python3 -m unittest discover -s tests -p test_seed_config.py
+        run: python3 -m unittest discover -s tests -p "test_seed*.py"
 
       - name: Install, upgrade, backup, restore and MCP script tests
         run: bash tests/scripts-test.sh
