@@ -10,6 +10,7 @@
 #   --with-backup-timer | --without-backup-timer  optional daily hot backup     (HA_BACKUP_TIMER)
 #   --write-recorder-secret  with Postgres: add recorder_db_url to <config dir>/secrets.yaml
 #                            when it is not there yet (configuration.yaml is never edited)
+#   --preserve-existing-seed  retain equal/newer/custom components and existing YAML
 #   --no-start               install the files and daemon-reload only
 #   --no-smoke               skip tests/smoke.sh at the end
 #   --dry-run                render, validate and report what would change; touch nothing
@@ -36,7 +37,7 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 . "$REPO/scripts/render-args.sh"
 PODMAN_MIN=4.9
 
-sel_matter='' sel_pg='' sel_mcp='' sel_timer='' write_secret=0 no_start=0 no_smoke=0 allow_image_change=0
+sel_matter='' sel_pg='' sel_mcp='' sel_timer='' write_secret=0 no_start=0 no_smoke=0 allow_image_change=0 seed_policy=auto
 while (($#)); do
   case $1 in
     --with-matter) sel_matter=true ;;
@@ -52,6 +53,7 @@ while (($#)); do
     --no-smoke) no_smoke=1 ;;
     --dry-run) export QL_DRY_RUN=1 ;;
     --allow-image-change) allow_image_change=1 ;;
+    --preserve-existing-seed) seed_policy=existing ;;
     -h | --help) sed -n '2,27p' "$0"; exit 0 ;;
     *) ql_die "unknown option $1 (see --help)" ;;
   esac
@@ -211,7 +213,7 @@ if ((with_mcp && !dry)); then
     || ql_die "$repo_img does not contain the isolated HA-MCP server"
 fi
 if (( ! dry )); then
-  "$REPO/scripts/seed-image.sh" "$repo_img" "$cfg" "$HA_STATE_DIR/seed-manifest.json" \
+  "$REPO/scripts/seed-image.sh" "$repo_img" "$cfg" "$HA_STATE_DIR/seed-manifest.json" "$seed_policy" \
     || ql_die "preinstall seed failed; Home Assistant units were not changed"
 fi
 ((with_pg == 0)) || ql_secret_ensure "$HA_DB_SECRET" random:48

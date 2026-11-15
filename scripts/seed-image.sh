@@ -25,4 +25,13 @@ cleanup() {
 trap cleanup EXIT
 cid=$(podman create --pull=never --entrypoint /bin/true "$image")
 podman cp "$cid:/config/." "$work/"
-python3 "$REPO/scripts/seed-config.py" --source "$work" --target "$target" --state "$state" --image "$image"
+policy=${4:-auto}
+if [[ $policy == auto ]]; then
+  policy=$(python3 -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()) if p.exists() else {}; print("existing" if "existing_device_policy" in d else "managed")' "$state")
+fi
+case $policy in
+  existing) helper=seed-existing-config.py ;;
+  managed) helper=seed-config.py ;;
+  *) printf 'Unknown seed policy\n' >&2; exit 1 ;;
+esac
+python3 "$REPO/scripts/$helper" --source "$work" --target "$target" --state "$state" --image "$image"
